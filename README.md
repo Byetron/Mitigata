@@ -30,12 +30,12 @@ Web UI: `/health` (refreshes every 30 s) and `/connectors/new` (B5 form; it only
 ## Before the first live run
 
 - `github_members.yaml`: replace `YOUR_ORG_LOGIN` with an org your token belongs to.
-- Jira connectors need `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` in `.env`. `validate` reports unset names.
-  `serve` skips configs that fail schema validation and `run` refuses to start on an invalid config.
-- `jira_issues` uses `/rest/api/3/search/jql` with cursor paging, because Atlassian retired `/rest/api/3/search`.
+- `validate` reports unset env var names. `serve` skips configs that fail schema validation and `run`
+  refuses to start on an invalid config.
+- Keyless connectors (`cisa_kev`, `feodo_c2`, `epss_high_risk`, `hibp_breaches`) work with no setup.
 - The GitHub `updated=>=...` filter syntax should be confirmed with one `curl` (spec risk table).
 - `incremental.cursor_format` and `lookback_minutes` are small additions to the spec's format, needed because
-  JQL and NVD want non-ISO timestamps and JQL reads times in the account time zone.
+  NVD wants non-ISO timestamps.
 
 ## Secrets
 

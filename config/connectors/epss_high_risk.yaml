@@ -1,0 +1,28 @@
+connector: epss_high_risk
+source: first_epss
+enabled: true
+schedule: "15 6 * * *"
+base_url: https://api.first.org
+auth:
+  type: none
+endpoints:
+  - name: epss
+    method: GET
+    path: /data/v1/epss
+    params:
+      epss-gt: "0.9"          # only CVEs with more than 90% predicted exploitation probability
+    records_path: data
+    pagination:
+      type: offset
+      start_param: offset
+      limit_param: limit
+      limit: 100
+      total_path: total
+    mapping:
+      target: event
+      fields:
+        id:          { from: cve, required: true }
+        type:        { const: epss }
+        severity:    { const: high }
+        timestamp:   { from: date, transform: iso8601, required: true }
+        description: { from: epss, transform: to_string, default: "" }   # the EPSS score itself

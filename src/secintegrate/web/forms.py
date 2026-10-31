@@ -49,7 +49,7 @@ def precheck(v: dict[str, Any]) -> dict[str, str]:
     if v["auth_type"] != "none" and not ENV_NAME_RE.match(v["secret_env"]):
         errors["secret_env"] = "enter an env var NAME such as GITHUB_TOKEN, never the secret itself"
     if v["auth_type"] == "basic" and not ENV_NAME_RE.match(v["username_env"]):
-        errors["username_env"] = "enter an env var name such as JIRA_EMAIL"
+        errors["username_env"] = "enter an env var name such as SERVICE_USER"
     if v["auth_type"] == "api_key_header" and not HEADER_RE.match(v["header_name"] or " "):
         errors["header_name"] = "enter a valid HTTP header name"
     if not v["path"].startswith("/"):

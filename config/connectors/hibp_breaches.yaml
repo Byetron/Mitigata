@@ -1,0 +1,23 @@
+connector: hibp_breaches
+source: haveibeenpwned
+enabled: true
+schedule: "45 5 * * *"
+base_url: https://haveibeenpwned.com
+auth:
+  type: none
+headers:
+  User-Agent: secintegrate
+  Accept: application/json
+endpoints:
+  - name: breaches
+    method: GET
+    path: /api/v3/breaches
+    records_path: ""
+    mapping:
+      target: event
+      fields:
+        id:          { from: Name, required: true }
+        type:        { const: breach }
+        severity:    { const: medium }
+        timestamp:   { from: AddedDate, transform: iso8601, required: true }
+        description: { from: Title, default: "" }

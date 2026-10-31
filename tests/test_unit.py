@@ -100,11 +100,11 @@ def test_nvd_windows_300_days():
     assert [(e - s).days for s, e in ws] == [120, 120, 60]
 
 
-def test_jira_jql_formatting():
+def test_cursor_format_rendering():
     from secintegrate.config.schema import Incremental
-    inc = Incremental(cursor_field="f", param="jql", format='updated >= "{value}"', initial="2026-01-01 00:00",
+    inc = Incremental(cursor_field="f", param="since", format='modified >= "{value}"', initial="2026-01-01 00:00",
                       cursor_format="%Y-%m-%d %H:%M")
-    assert plan_requests(inc, "2026-03-02T10:30:00Z") == [{"jql": 'updated >= "2026-03-02 10:30"'}]
+    assert plan_requests(inc, "2026-03-02T10:30:00Z") == [{"since": 'modified >= "2026-03-02 10:30"'}]
 
 
 def test_max_cursor_ignores_garbage():
