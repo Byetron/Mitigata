@@ -141,6 +141,7 @@ class Pagination(_Model):
     start: int = 1
     stop_when_empty: bool = True
     next_path: str | None = None
+    max_pages: int = Field(default=1000, ge=1, le=100_000)  # a safety stop, not a target
 
     @field_validator("type", mode="before")
     @classmethod

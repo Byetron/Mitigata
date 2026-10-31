@@ -113,3 +113,20 @@ Tests are in `tests/test_autoheal.py` and `tests/test_web_auth.py`.
   (`scheduler.schedule_first_runs`, tested in `tests/test_autoheal.py`). Before this, a fresh database showed events from
   only whichever connector had last been run by hand.
 - `docs/live-run-log.md` records one real run of every connector (spec section 8.3).
+
+### API simulation, hardening, simpler template
+
+- `scripts/simulate_api_errors.py` drives the real runner through 35 scripted bad-API behaviours (also run as
+  `tests/test_api_simulation.py`). The first run found 15 problems, all fixed:
+  - the login header followed redirects, and a next-page link, to other servers: login headers now go only to the
+    configured server, and a link to another server stops the run;
+  - paging that never ends: a 1,000-page safety limit (`max_pages`), plus detection of repeated links, tokens and pages;
+  - relative next-page links now work;
+  - `Retry-After` longer than 5 minutes is no longer slept through (it would block a connector for hours), and a 503's
+    `Retry-After` is honoured like a 429's;
+  - an empty body, 204 or `null` means "nothing new" instead of an error;
+  - a record dated far in the future can no longer push the sync cursor ahead;
+  - the quarantine holds at most 5,000 records per connector;
+  - a probe that gets 429 counts as reachable.
+- The starter template is now four short parts in plain words; the extras moved to `docs/connector-options.md`.
+- The navigation no longer shows a number next to **Users**. It was not requested.

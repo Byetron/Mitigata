@@ -109,18 +109,23 @@ def test_non_object_record_is_quarantined(httpserver: HTTPServer, db: Database, 
     assert r.status == "partial" and r.records_bad == 1
 
 
-def test_network_loss_mid_run(httpserver: HTTPServer, db: Database, vault: SecretVault,
-                              notifier: RecordingNotifier) -> None:
-    nxt = "http://127.0.0.1:1/advisories?page=2"
-    httpserver.expect_request("/advisories").respond_with_handler(
-        lambda req: _json([advisory(1)], headers={"Link": f'<{nxt}>; rel="next"'}))
+def test_network_loss_mid_run(db: Database, vault: SecretVault, notifier: RecordingNotifier) -> None:
+    import httpx
+
+    def serve(request: httpx.Request) -> httpx.Response:
+        if "page=2" in str(request.url):
+            raise httpx.ConnectError("connection dropped", request=request)  # the network goes away after page 1
+        link = '<https://api.example.test/advisories?page=2>; rel="next"'
+        return httpx.Response(200, json=[advisory(1)], headers={"Link": link})
+
+    cfg = make_cfg("https://api.example.test")
     sleeps: list[float] = []
-    r = _run(httpserver, db, vault, notifier, sleeps)
+    r = run_connector(cfg, db, vault, notifier, sleep=sleeps.append, transport=httpx.MockTransport(serve))
     assert r.status == "failed" and r.category is FailureCategory.NETWORK
     assert sleeps == [1.0, 2.0, 4.0]
     assert db.count("events") == 1  # page 1 kept
     assert db.get_cursor("github_advisories", "advisories") is None  # cursor not advanced
-    assert r.message == ("Cannot reach `localhost`. Check network connectivity. "  # the connector's configured host
+    assert r.message == ("Cannot reach `api.example.test`. Check network connectivity. "
                          "Hermes will retry automatically in 5 minutes.")
 
 

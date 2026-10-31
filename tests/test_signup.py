@@ -139,7 +139,7 @@ def test_an_existing_user_approves_a_request(tmp_path: Path, db: Database) -> No
     admin.post("/login", data={"email": EMAIL, "password": PASSWORD, "csrf_token": csrf})
     page = admin.get("/users").get_data(as_text=True)
     assert OTHER in page and "waiting for approval" in page and "Approve" in page
-    assert '<span class="badge">1</span>' in admin.get("/").get_data(as_text=True)
+    assert "badge" not in admin.get("/").get_data(as_text=True)  # no counts in the navigation
     token = csrf_from(admin, "/users")
     assert admin.post("/users/approve", data={"email": OTHER}).status_code == 400  # no CSRF token
     assert admin.post("/users/approve", data={"email": OTHER, "csrf_token": token}).status_code == 302

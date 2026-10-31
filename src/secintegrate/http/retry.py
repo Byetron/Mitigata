@@ -41,6 +41,7 @@ class RetryPolicy:
     backoff_seconds: list[float] = field(default_factory=lambda: [1.0, 2.0, 4.0])
     retry_after_default: float = 30.0
     max_rate_limit_waits: int = 5
+    max_wait_seconds: float = 300.0  # longer requests are not slept through: the scheduler retries later
 
     @classmethod
     def from_config(cls, cfg: Any) -> RetryPolicy:
@@ -112,6 +113,10 @@ def execute(
                 raise FetchError(FailureCategory.RATE_LIMITED,
                                  f"HTTP {status} for {label}, gave up after {rate_waits} waits", status)
             wait = parse_retry_after(resp.headers.get("retry-after"), policy.retry_after_default)
+            if wait > policy.max_wait_seconds:
+                raise FetchError(FailureCategory.RATE_LIMITED,
+                                 f"HTTP {status} for {label}: asked to wait {wait:.0f}s, "
+                                 f"more than the {policy.max_wait_seconds:.0f}s allowed", status)
             rate_waits += 1
             logger.warning("%s: rate limited (HTTP %d), waiting %.1fs", label, status, wait)
             sleep(wait)
@@ -122,6 +127,12 @@ def execute(
             if retries >= policy.max_retries:
                 raise FetchError(category, f"HTTP {status} for {label} after {retries} retries", status)
             wait = policy.backoff(retries)
+            asked = resp.headers.get("retry-after")
+            if asked:  # a 503 that says when to come back is honoured, like a 429
+                wait = max(wait, parse_retry_after(asked, wait))
+                if wait > policy.max_wait_seconds:
+                    raise FetchError(category, f"HTTP {status} for {label}: asked to wait {wait:.0f}s, "
+                                     f"more than the {policy.max_wait_seconds:.0f}s allowed", status)
             retries += 1
             logger.warning("%s: HTTP %d, retry %d in %.1fs", label, status, retries, wait)
             sleep(wait)

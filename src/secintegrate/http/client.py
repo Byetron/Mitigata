@@ -45,11 +45,23 @@ class ApiClient:
         self.cfg = cfg
         self.vault = vault
         self.sleep = sleep
-        self.http = httpx.Client(timeout=30.0, transport=transport, follow_redirects=True)
+        home = httpx.URL(cfg.base_url)
+        self._home = (home.scheme, home.host, home.port or (443 if home.scheme == "https" else 80))
+        self._secret_headers = {"authorization", (cfg.auth.header or "").lower()} - {""}
+        self.http = httpx.Client(timeout=30.0, transport=transport, follow_redirects=True,
+                                 event_hooks={"request": [self._keep_secrets_home]})
         rl = cfg.rate_limit
         self.bucket = TokenBucket(rl.max_requests, rl.per_seconds, sleep=sleep) if rl and throttle else None
         self.policy = RetryPolicy.from_config(cfg.retry)
         self.requests_made = 0
+
+    def _keep_secrets_home(self, request: httpx.Request) -> None:
+        """Runs for every request, including each redirect hop: login headers only ever go to the configured server."""
+        url = request.url
+        if (url.scheme, url.host, url.port or (443 if url.scheme == "https" else 80)) != self._home:
+            for name in self._secret_headers:
+                if name in request.headers:
+                    del request.headers[name]
 
     def close(self) -> None:
         self.http.close()
@@ -84,10 +96,12 @@ class ApiClient:
 
     def request(self, method: str, url: str, params: dict[str, Any] | None = None) -> Page:
         resp = self._send(method, url, params, self.policy)
-        try:
-            data = resp.json()
-        except ValueError:
-            raise FetchError(FailureCategory.UNKNOWN, f"malformed JSON from {self.cfg.connector}") from None
+        data: Any = None  # no body (204, or an empty reply) means nothing new, not an error
+        if resp.status_code != httpx.codes.NO_CONTENT and resp.content.strip():
+            try:
+                data = resp.json()
+            except ValueError:
+                raise FetchError(FailureCategory.UNKNOWN, f"malformed JSON from {self.cfg.connector}") from None
         return Page(data=data, headers=resp.headers, url=str(resp.url))
 
     def probe(self, probe: Probe, base_url: str) -> ProbeResponse:

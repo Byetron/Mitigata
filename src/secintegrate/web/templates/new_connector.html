@@ -182,9 +182,9 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="card">
         <h3>Write the YAML yourself</h3>
-        <p class="sub" style="margin:0 0 10px">This is a commented template: every line says what to enter. Edit it,
-          then check it. It uses the same rules as the form and <code>hermes validate</code>. The same text is printed by
-          <code>hermes template</code>.</p>
+        <p class="sub" style="margin:0 0 10px">Change the example values to yours (parts 1 to 4 are all you need), then press
+          <strong>Check</strong>. Problems are shown with their line number. Extras such as paging and a health check are in
+          <code>docs/connector-options.md</code>.</p>
         <textarea id="yaml_text" name="yaml_text" spellcheck="false" autocomplete="off">{{ yaml_text }}</textarea>
         <div id="yaml-issues" class="yaml-issues" aria-live="polite">
           {% for i in yaml_issues %}<div class="issue {{ i.severity }}"><span class="line">line {{ i.line }}</span>{{ i.message }}</div>{% endfor %}

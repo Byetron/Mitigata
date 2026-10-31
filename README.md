@@ -84,10 +84,12 @@ This protects a local dashboard; it is not a hardened internet-facing login, so 
 
 A source starting with `=` in a mapping row is a fixed value, for example `=high`.
 
-**Prefer to write YAML?** Open the **Write YAML** tab on the same page. It holds a commented template that says what to
-enter on every line, checks your text with the same validator (errors show the line number), and saves your file exactly
-as you wrote it, comments included. The same template is available from the terminal:
-`hermes template` prints it and `hermes template --out config/connectors/mine.yaml` writes it.
+**Prefer to write YAML?** Open the **Write YAML** tab on the same page. It holds a short template with four parts (about
+the connector, how to log in, what to download, which fields to keep) and a plain-words comment on every line. Change the
+example values to yours and press **Check**; your text is checked with the same rules as the form, errors show their line
+number, and the file is saved exactly as you wrote it. The same template is available from the terminal: `hermes template`
+prints it and `hermes template --out config/connectors/mine.yaml` writes it. Optional extras (several pages of results,
+a health check, other logins) are in [docs/connector-options.md](docs/connector-options.md).
 
 **Removing a connector.** Press **Remove** on its card, or run `hermes remove NAME`. The config moves to
 `config/connectors/.trash/` (copy it back to restore), its health history, probes and cursor are cleared, and fetched

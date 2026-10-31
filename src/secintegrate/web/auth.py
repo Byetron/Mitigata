@@ -106,8 +106,7 @@ def register_auth(app: Flask, db: Database, options: WebOptions) -> None:
 
     @app.context_processor
     def inject() -> dict[str, Any]:
-        waiting = sum(1 for u in db.list_app_users() if u["status"] == "pending") if session.get("user") else 0
-        return {"csrf_token": csrf_token, "current_user": session.get("user"), "pending_users": waiting}
+        return {"csrf_token": csrf_token, "current_user": session.get("user")}
 
     canonical = urlparse(options.public_url).netloc if options.public_url else ""
 

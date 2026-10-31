@@ -67,10 +67,17 @@ class _EndpointState:
         self.cursor: str | None = None
 
 
+QUARANTINE_CAP = 5000  # per connector: a broken source must not fill the disk
+
+
 def _quarantine(db: Database, run_id: int, cfg: ConnectorConfig, ep: Endpoint,
                 bad: list[tuple[int, Any, MappingError]], totals: dict[str, int]) -> None:
-    for index, record, exc in bad:
+    room = max(0, QUARANTINE_CAP - db.count_rows("quarantine", cfg.connector))
+    for index, record, exc in bad[:room]:
         db.add_quarantine(run_id, cfg.connector, ep.name, index, str(exc), record)
+    if len(bad) > room:
+        logger.warning("%s: quarantine is full (%d); %d bad record(s) counted but not stored",
+                       cfg.connector, QUARANTINE_CAP, len(bad) - room)
     totals["bad"] += len(bad)
 
 

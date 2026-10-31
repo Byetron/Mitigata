@@ -253,7 +253,8 @@ def test_login_page_explains_missing_google_setup(tmp_path: Path, db: Database) 
 # --- YAML editor ----------------------------------------------------------------------------------
 def test_template_is_valid_once_its_secret_exists() -> None:
     _, issues = validate_text(template_text(), "template.yaml", known_secrets={"MY_API_KEY"})
-    assert not has_errors(issues) and issues == []
+    assert not has_errors(issues)  # the only note allowed is the optional "no probe" warning
+    assert all(i.severity == "warning" for i in issues)
     _, missing = validate_text(template_text(), "template.yaml", known_secrets=set())
     assert any("Secret `MY_API_KEY` is not stored" in i.message for i in missing)
 
@@ -282,7 +283,7 @@ def test_yaml_editor_shows_line_numbers_and_writes_nothing_on_error(tmp_path: Pa
 
 def test_yaml_editor_page_shows_the_template_and_both_tabs(tmp_path: Path, db: Database) -> None:
     page = make_client(tmp_path, db, login=False).get("/connectors/new?tab=yaml").get_data(as_text=True)
-    assert "Hermes connector template" in page and "Use the form" in page and "Write YAML" in page
+    assert "Hermes connector" in page and "How to log in" in page and "Use the form" in page and "Write YAML" in page
 
 
 def test_yaml_editor_refuses_huge_input(tmp_path: Path, db: Database) -> None:
@@ -329,7 +330,7 @@ def test_cli_template_and_remove(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     monkeypatch.setenv("SECINTEGRATE_MASTER_KEY", "ab" * 32)
     runner = CliRunner()
     shown = runner.invoke(cli_app, ["template"])
-    assert shown.exit_code == 0 and "Hermes connector template" in shown.output
+    assert shown.exit_code == 0 and "How to log in" in shown.output
     out = tmp_path / "mine.yaml"
     assert runner.invoke(cli_app, ["template", "--out", str(out)]).exit_code == 0 and out.exists()
     assert runner.invoke(cli_app, ["template", "--out", str(out)]).exit_code == 1  # never overwrites

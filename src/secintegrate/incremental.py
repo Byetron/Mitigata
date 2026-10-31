@@ -41,12 +41,17 @@ def plan_requests(inc: Incremental, stored: str | None, now: datetime | None = N
     ]
 
 
-def max_cursor(current: str | None, candidate: Any) -> str | None:
-    """Keep the larger of two timestamps, normalised to UTC ISO. Bad values are ignored."""
+FUTURE_TOLERANCE = timedelta(days=1)  # allows clock differences, not a record dated year 9999
+
+
+def max_cursor(current: str | None, candidate: Any, now: datetime | None = None) -> str | None:
+    """Keep the larger of two timestamps, normalised to UTC ISO. Bad or far-future values are ignored."""
     try:
         dt = parse_dt(str(candidate))
     except (TypeError, ValueError):
         return current
+    if dt > (now or datetime.now(UTC)) + FUTURE_TOLERANCE:
+        return current  # one bogus date must not make every newer record look old
     if current is None or dt > parse_dt(current):
         return to_iso(dt)
     return current

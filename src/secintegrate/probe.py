@@ -91,6 +91,8 @@ def _send_probe(cfg: ConnectorConfig, vault: SecretVault, sleep: Callable[[float
     except (FetchError, SecIntegrateError, httpx.HTTPError) as exc:
         category = classify_exception(exc)
         status = exc.status if isinstance(exc, FetchError) else None
+        if category is FailureCategory.RATE_LIMITED:  # reachable and logged in: only busy
+            return ProbeResult(True, None, status, None)
         if category is FailureCategory.UNKNOWN:
             logger.error("probe for %s failed with an unexpected %s", cfg.connector, type(exc).__name__)
         return ProbeResult(False, category, status, None)
