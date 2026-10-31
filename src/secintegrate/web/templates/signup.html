@@ -20,15 +20,12 @@
             padding: 10px 14px; font-size: .9rem; }
   .or { text-align: center; color: var(--muted); font-size: .8rem; margin: 14px 0; }
   .field { margin-bottom: 12px; }
+  .trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 {% endblock %}
 
 {% block content %}
 <div class="login">
   {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
-  {% if notice %}
-    <div class="notice" role="status">{{ notice }}</div>
-    <div class="sub"><a href="/login">Back to sign in</a></div>
-  {% else %}
   <div class="card">
     {% if google_enabled %}
       <a class="btn google" href="/auth/google">Continue with Google</a>
@@ -42,14 +39,15 @@
         <input id="password" name="password" type="password" autocomplete="new-password" minlength="{{ min_length }}" required></div>
       <div class="field"><label for="confirm">Confirm password</label>
         <input id="confirm" name="confirm" type="password" autocomplete="new-password" minlength="{{ min_length }}" required></div>
+      <div class="field"><label for="captcha">{{ question }} <span class="hint">to show you are a person</span></label>
+        <input id="captcha" name="captcha" inputmode="numeric" autocomplete="off" maxlength="3" required></div>
+      <div class="trap" aria-hidden="true"><label>Leave this empty <input name="website" tabindex="-1" autocomplete="off"></label></div>
       <button class="btn" type="submit">Create account</button>
     </form>
   </div>
   <div class="card sub">
-    The first account created gets in straight away. Every account after that waits until someone who already has
-    access approves it, so nobody can sign themselves in.
+    Each account has its own connectors, data and keys. A new account starts empty, and nobody else can see what you add.
   </div>
   <div class="sub">Already have an account? <a href="/login">Sign in</a></div>
-  {% endif %}
 </div>
 {% endblock %}

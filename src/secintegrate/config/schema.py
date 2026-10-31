@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import difflib
+import ipaddress
 import re
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from apscheduler.triggers.cron import CronTrigger
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from ..transforms import TRANSFORMS
 
@@ -34,6 +36,18 @@ _REQUIRED_MESSAGE = {
     "device": "A device record needs `id`.",
     "event": "An event record needs `id`, `timestamp`, and `severity`.",
 }
+
+
+def is_internal_host(host: str) -> bool:
+    """True for localhost, private and link-local addresses (including cloud metadata addresses)."""
+    name = host.strip("[]").lower()
+    if name == "localhost" or name.endswith((".localhost", ".local", ".internal", ".lan", ".home.arpa")):
+        return True
+    try:
+        ip = ipaddress.ip_address(name)
+    except ValueError:
+        return False  # an ordinary host name; Hermes cannot know what it resolves to
+    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified
 
 
 def looks_like_real_key(value: str) -> bool:
@@ -286,10 +300,13 @@ class ConnectorConfig(_Model):
 
     @field_validator("base_url")
     @classmethod
-    def _base(cls, v: str) -> str:
+    def _base(cls, v: str, info: ValidationInfo) -> str:
         # Loopback http is allowed so tests can use a local mock server.
         if not v.startswith(("https://", "http://localhost", "http://127.0.0.1")):
             raise ValueError("Base URL must start with https://.")
+        allow_internal = (info.context or {}).get("allow_internal", True)
+        if not allow_internal and is_internal_host(urlparse(v).hostname or ""):
+            raise ValueError("Base URL must be a public address, not this computer or a private network.")
         return v
 
     @model_validator(mode="after")

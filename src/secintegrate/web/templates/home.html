@@ -74,7 +74,8 @@
         <button type="submit" class="danger">Remove</button>
       </form>
     </div>
-    {% else %}<div class="card empty">No connectors found in the config directory.</div>{% endfor %}
+    {% else %}<div class="card empty">You have no connectors yet. <a href="/connectors/new">Create your first connector</a>
+      from a preset, or write it in YAML. Each account has its own connectors, data and keys.</div>{% endfor %}
   </div>
 
   <h2>Latest activity</h2>

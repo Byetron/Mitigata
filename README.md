@@ -50,29 +50,41 @@ pytest ; ruff check src tests ; mypy
 
 `secintegrate` still works as an alias for `hermes`.
 
-## Signing in
+## Accounts and sign-in
 
-The dashboard needs a sign-in. The easiest start is the **Create account** link on the sign-in page: **the first
-account created gets in straight away**, and **every later account waits** until someone who already has access approves
-from the terminal with `hermes auth approve EMAIL` (the web app has no user-management page). A first-time Google sign-in follows the same rule, so
-nobody can sign themselves in. Prefer the terminal? Run this once:
+Anyone who can reach the dashboard can create an account on the sign-in page: **Create account**, or **Continue with
+Google**. There is no approval step. Password sign-ups answer a small maths question (and a hidden trap field catches
+simple programs); that stops casual bots, not a determined attacker, so keep Hermes on `127.0.0.1`, where only people on
+this computer can reach it.
+
+**Every account has its own workspace.** A new account starts empty: it sees only the connectors, records, health history
+and keys it adds itself. Nothing is shared by accident: each account's data and keys live in their own files
+(`workspaces/<id>/` next to the main database). The first account keeps the connectors and keys that existed before
+accounts were introduced, and nobody inherits them if that account is removed. Connectors made in the web app cannot
+point at this computer or a private network (`127.0.0.1`, `10.x`, `192.168.x`, `*.local` and similar are refused), so one
+account cannot use Hermes to probe the others' services.
+
+From the terminal (add `--user EMAIL` to act on one account's own connectors and keys):
 
 ```powershell
-hermes auth set-password you@example.com   # password login, typed at a hidden prompt (10+ characters)
-hermes auth add you@gmail.com              # allow a Google account (needs the Google setup below)
-hermes auth list ; hermes auth approve bob@example.com ; hermes auth remove you@example.com
+hermes auth set-password you@example.com   # create or change a password login (hidden prompt, 10+ characters)
+hermes auth add you@gmail.com              # create an account in advance (also made on the first Google sign-in)
+hermes auth list ; hermes auth remove you@example.com
+hermes secret set GITHUB_TOKEN --user you@example.com
+hermes run github_advisories --user you@example.com
 ```
+
+Removing an account signs it out on its next click; its connectors and data stay on disk.
 
 **Google sign-in (optional, recommended).** In the Google Cloud Console create an OAuth client of type *Web
 application* and add the redirect URI `http://127.0.0.1:8000/auth/callback` (exactly that: Hermes sends people who
 open `localhost:8000` to `127.0.0.1:8000` so the sign-in cookie and Google's redirect agree). Then store its two values:
-`hermes secret set GOOGLE_CLIENT_ID` and `hermes secret set GOOGLE_CLIENT_SECRET`. Only addresses you allowed with
-`hermes auth add` or approved with `hermes auth approve`, and that Google says are verified, can sign in. Hermes uses the authorization-code flow with PKCE
-and keeps no Google tokens.
+`hermes secret set GOOGLE_CLIENT_ID` and `hermes secret set GOOGLE_CLIENT_SECRET`. Any Google account whose address
+Google says is verified can sign in, and gets its own empty workspace. Hermes uses the authorization-code flow with PKCE
+and keeps no Google tokens. These two values are app-wide and live in the main vault, which new accounts cannot reach.
 
 Passwords are stored as salted scrypt hashes. Five wrong attempts lock that account (and your address) for ten minutes.
 Every form carries a CSRF token, the session cookie is HttpOnly and SameSite=Lax, and sessions end after 8 hours.
-This protects a local dashboard; it is not a hardened internet-facing login, so keep Hermes on `127.0.0.1`.
 
 ## Adding a connector
 

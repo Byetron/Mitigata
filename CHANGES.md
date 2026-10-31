@@ -96,7 +96,7 @@ Tests are in `tests/test_autoheal.py` and `tests/test_web_auth.py`.
 - **Decisions:** the web UI now refuses anonymous visitors; `db reset` keeps sign-in users and secrets; no Google tokens are
   stored; the session secret is kept in the vault as `SESSION_SECRET`.
 
-### Account creation (`tests/test_signup.py`)
+### Account creation, first version (superseded: approval was removed, see "Open sign-up" below)
 
 - `/signup` page with a link from the sign-in page; the first account is active, later ones are `pending` until approved on
   `hermes auth approve` (there is no Users page in the web app). Google first sign-in follows the same rule. Existing addresses are never changed,
@@ -136,3 +136,25 @@ Tests are in `tests/test_autoheal.py` and `tests/test_web_auth.py`.
 - When a source's connector is failing, paused or degraded, the events area says so: a notice above the table
   ("nvd is unavailable. These are the records from its last good update (...) and may be out of date." plus the reason),
   and a coloured dot on that source's filter chip. The saved records stay visible, as they should. Tests in `tests/test_web.py`.
+
+### Open sign-up with a captcha, and a separate workspace for every account
+
+- **No approval.** Anyone can create an account (password with a captcha, or Google). The approval step, the Users page and
+  `hermes auth approve` are gone; accounts left waiting by the old rule are let in when the database is upgraded.
+- **Captcha** (`web/auth.py`): a small arithmetic question whose answer is kept only as a keyed hash in the session, single
+  use, valid 10 minutes, plus a hidden trap field and the existing 5-attempts-per-10-minutes limit. A signing-up address that
+  already exists is told so (this reveals that the address has an account) and is never changed.
+- **Workspaces** (`workspaces.py`): every account except the first has its own folder with its own database, so its
+  connectors, records, health history, probes and **encrypted keys** are separate files. The first account keeps the
+  original connectors and keys ("legacy workspace"); the owner is remembered in `app_settings`, and nobody inherits it if
+  that account is removed. App-wide secrets (Google credentials, the session secret) stay in the main vault.
+- **`--user EMAIL`** on `validate`, `run`, `status`, `resume`, `remove`, `secret *` and `db reset`.
+- **Scheduler** runs every account's connectors; job ids carry the owner, so two accounts can use the same connector name.
+  A connector added in the web app now fetches its first data within seconds instead of at its next cron time.
+- **Web-created connectors cannot target internal addresses** (`allow_internal=False`), because with open sign-up any
+  visitor could otherwise aim Hermes at this computer's services. The administrator's command line still allows them.
+- **`secret set` and `import-env` trim stray spaces**, including the invisible non-breaking space that a copy and paste
+  once put at the start of a GitHub token.
+- Residual risks, stated plainly: a public host name that resolves to a private address, or redirects to one, is not
+  caught; all accounts share one master key; and a person with access to the computer's files can read every workspace.
+- Tests: `tests/test_signup.py`, `tests/test_workspaces.py`; checked live with two real accounts on a temporary instance.

@@ -93,3 +93,8 @@ CREATE TABLE IF NOT EXISTS app_users (
   added_at      TEXT NOT NULL,
   status        TEXT NOT NULL DEFAULT 'active'
 );
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);

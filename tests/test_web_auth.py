@@ -214,7 +214,6 @@ def test_google_sign_in_for_an_allowed_address(tmp_path: Path, db: Database, goo
 
 
 @pytest.mark.parametrize(("change", "expected"), [
-    ({"email": "stranger@example.com"}, "pending"),
     ({"verified": False}, "unverified"),
     ({"token_ok": False}, "failed"),
 ])
@@ -261,7 +260,7 @@ def test_template_is_valid_once_its_secret_exists() -> None:
 
 def test_yaml_editor_creates_a_file_and_keeps_comments(tmp_path: Path, db: Database) -> None:
     added: list[str] = []
-    hooks = ConnectorHooks(added=lambda cfg: added.append(cfg.connector), removed=lambda c: None)
+    hooks = ConnectorHooks(added=lambda owner, cfg: added.append(cfg.connector), removed=lambda owner, name: None)
     client = make_client(tmp_path, db, hooks=hooks, login=False)
     response = client.post("/connectors/new-yaml", data={"yaml_text": GOOD_YAML})
     assert response.status_code == 200
@@ -294,7 +293,7 @@ def test_yaml_editor_refuses_huge_input(tmp_path: Path, db: Database) -> None:
 # --- removing connectors ----------------------------------------------------------------------------
 def test_remove_moves_the_config_to_trash_and_clears_state(tmp_path: Path, db: Database) -> None:
     removed: list[str] = []
-    hooks = ConnectorHooks(added=lambda cfg: None, removed=removed.append)
+    hooks = ConnectorHooks(added=lambda owner, cfg: None, removed=lambda owner, name: removed.append(name))
     client = make_client(tmp_path, db, hooks=hooks, login=False)
     client.post("/connectors/new-yaml", data={"yaml_text": GOOD_YAML})
     db.upsert("event", "demo", [{"id": "E1", "type": "t", "severity": "low", "timestamp": "2026-01-01T00:00:00Z",

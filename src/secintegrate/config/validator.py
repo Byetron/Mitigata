@@ -92,8 +92,13 @@ def validate_text(
     filename: str = "<config>",
     known_ids: Collection[str] | None = None,
     known_secrets: Collection[str] | None = None,
+    allow_internal: bool = True,
 ) -> tuple[ConnectorConfig | None, list[ValidationIssue]]:
-    """Validate one config. `known_secrets` is the set of names in the vault (None skips that check)."""
+    """Validate one config. `known_secrets` is the set of names in the vault (None skips that check).
+
+    `allow_internal=False` (used for connectors created in the web app) refuses base URLs that point at this
+    computer or a private network, so a connector cannot be used to reach services that are not public.
+    """
     try:
         node = yaml.compose(text)
         data = yaml.safe_load(text)
@@ -107,7 +112,7 @@ def validate_text(
     issues: list[ValidationIssue] = []
     cfg: ConnectorConfig | None = None
     try:
-        cfg = ConnectorConfig.model_validate(data)
+        cfg = ConnectorConfig.model_validate(data, context={"allow_internal": allow_internal})
     except ValidationError as exc:
         for err in exc.errors():
             loc = tuple(err["loc"])

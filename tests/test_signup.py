@@ -1,4 +1,4 @@
-"""Creating accounts: first-account bootstrap, approval, Google first sign-in, host pinning."""
+"""Creating accounts: open sign-up with a captcha, Google first sign-in, host pinning. There is no approval step."""
 from __future__ import annotations
 
 import re
@@ -21,6 +21,7 @@ from secintegrate.web.options import WebOptions
 from test_web_auth import CSRF, EMAIL, PASSWORD, Google, start_google
 
 OTHER = "bob@example.com"
+QUESTION = re.compile(r"What is (\d+) (plus|minus) (\d+)\?")
 
 
 @pytest.fixture
@@ -38,74 +39,125 @@ def make_client(tmp_path: Path, db: Database, google: Google | None = None,
     return create_app(tmp_path / "cfg", db, None, options).test_client()
 
 
+def answer_for(page: str) -> str:
+    match = QUESTION.search(page)
+    assert match is not None, "the sign-up page has no captcha question"
+    a, word, b = int(match[1]), match[2], int(match[3])
+    return str(a + b if word == "plus" else a - b)
+
+
+def sign_up(client: FlaskClient, email: str, password: str = PASSWORD, confirm: str | None = None,
+            answer: str | None = None, **extra: str) -> TestResponse:
+    page = client.get("/signup").get_data(as_text=True)
+    match = CSRF.search(page)
+    assert match is not None
+    data = {"email": email, "password": password, "confirm": password if confirm is None else confirm,
+            "captcha": answer_for(page) if answer is None else answer, "csrf_token": match.group(1), **extra}
+    return client.post("/signup", data=data)
+
+
 def csrf_from(client: FlaskClient, path: str) -> str:
     match = CSRF.search(client.get(path).get_data(as_text=True))
     assert match is not None
     return match.group(1)
 
 
-def sign_up(client: FlaskClient, email: str, password: str = PASSWORD, confirm: str | None = None) -> TestResponse:
-    csrf = csrf_from(client, "/signup")
-    return client.post("/signup", data={"email": email, "password": password,
-                                        "confirm": password if confirm is None else confirm, "csrf_token": csrf})
+# --- database --------------------------------------------------------------------------------------------
+def test_new_accounts_are_created_at_once_and_never_overwritten(db: Database) -> None:
+    assert db.create_app_user(EMAIL, hash_password(PASSWORD)) == "created"
+    first = db.get_app_user(EMAIL)
+    assert db.create_app_user(EMAIL, hash_password("another password")) == "exists"
+    assert db.get_app_user(EMAIL) == first and len(db.list_app_users()) == 1
 
 
-# --- database rules ---------------------------------------------------------------------------------
-def test_first_account_is_active_and_later_ones_wait(db: Database) -> None:
-    assert db.create_app_user(EMAIL, hash_password(PASSWORD)) == "active"
-    assert db.create_app_user(OTHER, hash_password(PASSWORD)) == "pending"
-    assert db.create_app_user(OTHER, hash_password("another password")) == "exists"  # never overwritten
-    assert [u["status"] for u in db.list_app_users()] == ["pending", "active"]  # pending listed first
-    assert db.approve_app_user(OTHER) and not db.approve_app_user(OTHER)
-
-
-def test_pending_requests_are_capped(db: Database) -> None:
-    db.create_app_user(EMAIL, None)
-    assert db.create_app_user("a@example.com", None, max_pending=1) == "pending"
-    assert db.create_app_user("b@example.com", None, max_pending=1) == "full"
-
-
-def test_old_databases_gain_the_status_column(tmp_path: Path) -> None:
+def test_old_databases_are_upgraded_and_waiting_accounts_let_in(tmp_path: Path) -> None:
     path = tmp_path / "old.db"
     old = sqlite3.connect(path)
-    old.execute("CREATE TABLE app_users (email TEXT PRIMARY KEY, password_hash TEXT, added_at TEXT NOT NULL)")
-    old.execute("INSERT INTO app_users VALUES ('ann@example.com', NULL, '2026-01-01T00:00:00Z')")
+    old.execute("CREATE TABLE app_users (email TEXT PRIMARY KEY, password_hash TEXT, added_at TEXT NOT NULL, "
+                "status TEXT NOT NULL DEFAULT 'active')")
+    old.execute("INSERT INTO app_users VALUES ('ann@example.com', NULL, '2026-01-01T00:00:00Z', 'active')")
+    old.execute("INSERT INTO app_users VALUES ('wait@example.com', NULL, '2026-01-02T00:00:00Z', 'pending')")
     old.commit()
     old.close()
-    migrated = Database(path)
-    user = migrated.get_app_user("ann@example.com")
-    assert user is not None and user["status"] == "active"  # people who could sign in before still can
+    upgraded = Database(path)
+    assert {u["email"] for u in upgraded.list_app_users()} == {"ann@example.com", "wait@example.com"}
+    waiting = upgraded.get_app_user("wait@example.com")
+    assert waiting is not None and waiting["status"] == "active"  # approval no longer exists, so nobody is stuck
 
 
-# --- the sign-up page -------------------------------------------------------------------------------
-def test_first_signup_gets_straight_in(tmp_path: Path, db: Database) -> None:
+def test_settings_are_stored(db: Database) -> None:
+    assert db.get_setting("k") is None
+    db.set_setting("k", "one")
+    db.set_setting("k", "two")
+    assert db.get_setting("k") == "two"
+
+
+# --- sign-up with a captcha ----------------------------------------------------------------------------------
+def test_every_signup_gets_in_straight_away(tmp_path: Path, db: Database) -> None:
+    first, second = make_client(tmp_path, db), make_client(tmp_path, db)
+    assert sign_up(first, EMAIL).status_code == 302
+    assert sign_up(second, OTHER).status_code == 302  # the second account does not wait for anyone
+    assert EMAIL in first.get("/").get_data(as_text=True) and OTHER in second.get("/").get_data(as_text=True)
+    assert PASSWORD not in str(db.get_app_user(OTHER))  # only a hash is stored
+
+
+def test_a_wrong_answer_creates_nothing_and_asks_a_new_question(tmp_path: Path, db: Database) -> None:
     client = make_client(tmp_path, db)
-    response = sign_up(client, EMAIL)
-    assert response.status_code == 302
-    assert EMAIL in client.get("/").get_data(as_text=True)
-    user = db.get_app_user(EMAIL)
-    assert user is not None and user["status"] == "active" and PASSWORD not in str(user)
+    response = sign_up(client, EMAIL, answer="999")
+    page = response.get_data(as_text=True)
+    assert response.status_code == 400 and "That answer is not right" in page and QUESTION.search(page)
+    assert db.list_app_users() == []
 
 
-def test_later_signups_wait_and_cannot_sign_in(tmp_path: Path, db: Database) -> None:
-    db.create_app_user(EMAIL, hash_password(PASSWORD))
+def test_posting_without_ever_seeing_a_question_is_refused(tmp_path: Path, db: Database) -> None:
     client = make_client(tmp_path, db)
-    page = sign_up(client, OTHER).get_data(as_text=True)
-    assert "waiting" not in page and "approves it" in page  # neutral wording, same for any address
-    assert (db.get_app_user(OTHER) or {})["status"] == "pending"
-    csrf = csrf_from(client, "/login")
-    blocked = client.post("/login", data={"email": OTHER, "password": PASSWORD, "csrf_token": csrf})
-    assert blocked.status_code == 403 and "waiting for approval" in blocked.get_data(as_text=True)
-    assert client.get("/").status_code == 302  # still signed out
+    token = csrf_from(client, "/login")  # a session and a CSRF token, but no captcha question
+    response = client.post("/signup", data={"email": EMAIL, "password": PASSWORD, "confirm": PASSWORD,
+                                            "captcha": "5", "csrf_token": token})
+    assert response.status_code == 400 and db.list_app_users() == []
 
 
-def test_signup_never_changes_an_existing_account(tmp_path: Path, db: Database) -> None:
+def test_the_answer_is_not_kept_in_the_clear_and_each_question_is_single_use(tmp_path: Path, db: Database) -> None:
+    client = make_client(tmp_path, db)
+    client.get("/signup")
+    with client.session_transaction() as session:
+        first = dict(session["captcha"])
+    assert set(first) == {"nonce", "mac", "at"}  # a keyed hash, never the answer itself
+    sign_up(client, EMAIL, "short", "short")  # fails on the password, but the question is used up either way
+    with client.session_transaction() as session:
+        assert session["captcha"]["nonce"] != first["nonce"]
+
+
+def test_an_old_question_expires(tmp_path: Path, db: Database, monkeypatch: pytest.MonkeyPatch) -> None:
+    import time
+
+    client = make_client(tmp_path, db)
+    page = client.get("/signup").get_data(as_text=True)
+    token = CSRF.search(page)
+    assert token is not None
+    real = time.time
+    monkeypatch.setattr("secintegrate.web.auth.time.time", lambda: real() + 700)
+    response = client.post("/signup", data={"email": EMAIL, "password": PASSWORD, "confirm": PASSWORD,
+                                            "captcha": answer_for(page), "csrf_token": token.group(1)})
+    assert response.status_code == 400 and db.list_app_users() == []
+
+
+def test_the_hidden_trap_field_catches_programs(tmp_path: Path, db: Database) -> None:
+    client = make_client(tmp_path, db)
+    response = sign_up(client, EMAIL, website="http://spam.example")
+    assert response.status_code == 400 and db.list_app_users() == []
+
+
+def test_an_existing_email_is_told_to_sign_in_and_is_not_changed(tmp_path: Path, db: Database) -> None:
     db.create_app_user(EMAIL, hash_password(PASSWORD))
     before = db.get_app_user(EMAIL)
     client = make_client(tmp_path, db)
-    page = sign_up(client, EMAIL, "attacker chosen password").get_data(as_text=True)
-    assert "approves it" in page  # the same answer as a brand new address
+    response = sign_up(client, EMAIL, "attacker chosen password")
+    assert response.status_code == 409 and "already has an account" in response.get_data(as_text=True)
     assert db.get_app_user(EMAIL) == before
+    login = make_client(tmp_path, db)
+    ok = login.post("/login", data={"email": EMAIL, "password": PASSWORD, "csrf_token": csrf_from(login, "/login")})
+    assert ok.status_code == 302
 
 
 @pytest.mark.parametrize(("email", "password", "confirm", "message"), [
@@ -115,8 +167,7 @@ def test_signup_never_changes_an_existing_account(tmp_path: Path, db: Database) 
 ])
 def test_signup_validation(tmp_path: Path, db: Database, email: str, password: str, confirm: str,
                            message: str) -> None:
-    client = make_client(tmp_path, db)
-    response = sign_up(client, email, password, confirm)
+    response = sign_up(make_client(tmp_path, db), email, password, confirm)
     assert response.status_code == 400 and message in response.get_data(as_text=True)
     assert db.list_app_users() == []
 
@@ -129,81 +180,70 @@ def test_signup_is_throttled_and_needs_a_csrf_token(tmp_path: Path, db: Database
     assert sign_up(client, OTHER).status_code == 429
 
 
-# --- approval (command line only: the web app has no user section) ----------------------------------------
-def _signed_in(tmp_path: Path, db: Database, email: str) -> FlaskClient:
+def test_the_pages_never_mention_approval(tmp_path: Path, db: Database) -> None:
     client = make_client(tmp_path, db)
-    csrf = csrf_from(client, "/login")
-    client.post("/login", data={"email": email, "password": PASSWORD, "csrf_token": csrf})
-    return client
+    for path in ("/login", "/signup"):
+        assert "approv" not in client.get(path).get_data(as_text=True).lower()
+    page = client.get("/signup").get_data(as_text=True)
+    assert 'name="captcha"' in page and 'name="website"' in page and 'href="/login"' in page
+    assert "Continue with Google" in page and "starts empty" in page
 
 
-def test_a_pending_account_is_approved_from_the_command_line(tmp_path: Path, db: Database) -> None:
-    db.create_app_user(EMAIL, hash_password(PASSWORD))
-    waiting = make_client(tmp_path, db)
-    sign_up(waiting, OTHER)
-    admin = _signed_in(tmp_path, db, EMAIL)
-    home = admin.get("/").get_data(as_text=True)
-    assert 'href="/users"' not in home and "badge" not in home  # nothing about users in the navigation
-    token = csrf_from(admin, "/")
-    assert admin.get("/users").status_code == 404  # the page is gone
-    assert admin.post("/users/approve", data={"email": OTHER, "csrf_token": token}).status_code == 404
-    assert (db.get_app_user(OTHER) or {})["status"] == "pending"  # the web cannot approve anyone
-    approved = CliRunner().invoke(cli_app, ["auth", "approve", OTHER, "--db", str(db.path)])
-    assert approved.exit_code == 0
-    login_csrf = csrf_from(waiting, "/login")
-    ok = waiting.post("/login", data={"email": OTHER, "password": PASSWORD, "csrf_token": login_csrf})
-    assert ok.status_code == 302 and OTHER in waiting.get("/").get_data(as_text=True)
-
-
-def test_removing_a_user_signs_them_out_at_once(tmp_path: Path, db: Database) -> None:
-    db.create_app_user(EMAIL, hash_password(PASSWORD))
-    db.create_app_user(OTHER, hash_password(PASSWORD))
-    db.approve_app_user(OTHER)
-    guest = _signed_in(tmp_path, db, OTHER)
-    assert guest.get("/").status_code == 200
-    removed = CliRunner().invoke(cli_app, ["auth", "remove", OTHER, "--db", str(db.path)])
-    assert removed.exit_code == 0
-    assert guest.get("/").status_code == 302  # the session no longer works
-
-
-def test_there_is_no_users_page_for_visitors_either(tmp_path: Path, db: Database) -> None:
-    client = make_client(tmp_path, db)
-    assert client.get("/users").status_code == 302  # sent to sign in, and nothing is revealed
-    assert client.post("/users/approve", data={"email": OTHER}).status_code in (400, 401)
-
-
-# --- Google creating an account ---------------------------------------------------------------------
+# --- Google creating an account ---------------------------------------------------------------------------------
 def google_sign_in(client: FlaskClient, email: str, google: Google) -> str:
     google.email = email
     state = parse_qs(urlparse(start_google(client)).query)["state"][0]
     return str(client.get(f"/auth/callback?state={state}&code=abc").headers["Location"])
 
 
-def test_first_google_sign_in_creates_the_first_account(tmp_path: Path, db: Database, google: Google) -> None:
+def test_a_first_google_sign_in_creates_an_account_with_no_approval(tmp_path: Path, db: Database,
+                                                                    google: Google) -> None:
+    db.create_app_user(EMAIL, hash_password(PASSWORD))  # someone already has an account
     client = make_client(tmp_path, db, google)
-    assert google_sign_in(client, EMAIL, google) == "/"
-    user = db.get_app_user(EMAIL)
-    assert user is not None and user["status"] == "active" and user["password_hash"] is None
-    assert EMAIL in client.get("/").get_data(as_text=True)
-
-
-def test_later_google_accounts_wait_for_approval(tmp_path: Path, db: Database, google: Google) -> None:
-    db.create_app_user(EMAIL, hash_password(PASSWORD))
-    client = make_client(tmp_path, db, google)
-    assert google_sign_in(client, OTHER, google) == "/login?error=pending"
-    assert (db.get_app_user(OTHER) or {})["status"] == "pending"
-    assert client.get("/").status_code == 302
-    db.approve_app_user(OTHER)
     assert google_sign_in(client, OTHER, google) == "/"
+    user = db.get_app_user(OTHER)
+    assert user is not None and user["password_hash"] is None
+    assert OTHER in client.get("/").get_data(as_text=True)
 
 
-# --- pinning the address Google redirects to -------------------------------------------------------------
+def test_google_sign_in_leaves_an_existing_account_alone(tmp_path: Path, db: Database, google: Google) -> None:
+    db.create_app_user(EMAIL, hash_password(PASSWORD))
+    before = db.get_app_user(EMAIL)
+    assert google_sign_in(make_client(tmp_path, db, google), EMAIL, google) == "/"
+    assert db.get_app_user(EMAIL) == before  # still has its password
+
+
+# --- there is no user section and nothing to approve ------------------------------------------------------------
+def signed_in(tmp_path: Path, db: Database, email: str) -> FlaskClient:
+    client = make_client(tmp_path, db)
+    client.post("/login", data={"email": email, "password": PASSWORD, "csrf_token": csrf_from(client, "/login")})
+    return client
+
+
+def test_there_is_no_users_page(tmp_path: Path, db: Database) -> None:
+    db.create_app_user(EMAIL, hash_password(PASSWORD))
+    admin = signed_in(tmp_path, db, EMAIL)
+    assert 'href="/users"' not in admin.get("/").get_data(as_text=True)
+    assert admin.get("/users").status_code == 404
+    assert make_client(tmp_path, db).get("/users").status_code == 302  # signed out: sent to sign in
+
+
+def test_removing_a_user_signs_them_out_at_once(tmp_path: Path, db: Database) -> None:
+    db.create_app_user(EMAIL, hash_password(PASSWORD))
+    db.create_app_user(OTHER, hash_password(PASSWORD))
+    guest = signed_in(tmp_path, db, OTHER)
+    assert guest.get("/").status_code == 200
+    removed = CliRunner().invoke(cli_app, ["auth", "remove", OTHER, "--db", str(db.path)])
+    assert removed.exit_code == 0 and "stay on disk" in removed.output
+    assert guest.get("/").status_code == 302  # the session no longer works
+
+
+# --- pinning the address Google redirects to ---------------------------------------------------------------------
 def test_other_host_names_are_sent_to_the_canonical_address(tmp_path: Path, db: Database) -> None:
     client = make_client(tmp_path, db, public_url="http://127.0.0.1:8000")
     moved = client.get("/connectors/new?tab=yaml", headers={"Host": "localhost:8000"})
     assert moved.status_code == 302 and moved.headers["Location"] == "http://127.0.0.1:8000/connectors/new?tab=yaml"
-    same = client.get("/login", headers={"Host": "127.0.0.1:8000"})
-    assert same.status_code == 200
+    assert client.get("/login", headers={"Host": "127.0.0.1:8000"}).status_code == 200
 
 
 def test_google_redirect_uri_ignores_the_host_header(tmp_path: Path, db: Database) -> None:
@@ -213,22 +253,12 @@ def test_google_redirect_uri_ignores_the_host_header(tmp_path: Path, db: Databas
     assert query["redirect_uri"] == ["http://127.0.0.1:8000/auth/callback"]
 
 
-# --- pages and CLI ------------------------------------------------------------------------------------
-def test_login_and_signup_pages_link_to_each_other(tmp_path: Path, db: Database) -> None:
-    client = make_client(tmp_path, db)
-    assert 'href="/signup"' in client.get("/login").get_data(as_text=True)
-    page = client.get("/signup").get_data(as_text=True)
-    assert 'href="/login"' in page and "Continue with Google" in page and "Create account" in page
-
-
-def test_cli_approve(tmp_path: Path) -> None:
+# --- command line --------------------------------------------------------------------------------------------------
+def test_cli_has_no_approve_command_and_lists_accounts(tmp_path: Path) -> None:
     store = Database(tmp_path / "t.db")
     store.create_app_user(EMAIL, None)
-    store.create_app_user(OTHER, None)
+    store.create_app_user(OTHER, hash_password(PASSWORD))
     runner = CliRunner()
-    assert OTHER in runner.invoke(cli_app, ["auth", "list", "--db", str(store.path)]).output
-    assert "pending" in runner.invoke(cli_app, ["auth", "list", "--db", str(store.path)]).output
-    assert runner.invoke(cli_app, ["auth", "approve", OTHER, "--db", str(store.path)]).exit_code == 0
-    assert runner.invoke(cli_app, ["auth", "approve", OTHER, "--db", str(store.path)]).exit_code == 1
+    assert runner.invoke(cli_app, ["auth", "approve", OTHER, "--db", str(store.path)]).exit_code == 2  # no such command
     listing = runner.invoke(cli_app, ["auth", "list", "--db", str(store.path)]).output
-    assert re.search(r"bob@example.com\s+active", listing)
+    assert EMAIL in listing and OTHER in listing and "pending" not in listing and "google only" in listing

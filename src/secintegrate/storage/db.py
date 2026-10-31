@@ -60,6 +60,7 @@ class Database:
             user_cols = {row["name"] for row in c.execute("PRAGMA table_info(app_users)")}
             if "status" not in user_cols:
                 c.execute("ALTER TABLE app_users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+            c.execute("UPDATE app_users SET status='active' WHERE status != 'active'")  # approval was removed
 
     def reset(self) -> None:
         with self.conn() as c:
@@ -270,7 +271,6 @@ class Database:
 
     # --- people who may sign in to the web UI ----------------------------------
     # The `app_users` table is not in ALL_TABLES, so `db reset` never locks you out.
-    # status is "active" (may sign in) or "pending" (asked for access, waiting for approval).
     def add_app_user(self, email: str) -> None:
         """Allow an address (an administrator action), keeping any existing password."""
         with self.conn() as c:
@@ -284,36 +284,14 @@ class Database:
         with self.conn() as c:
             c.execute("UPDATE app_users SET password_hash=? WHERE email=?", (password_hash, email.lower()))
 
-    def create_app_user(self, email: str, password_hash: str | None, max_pending: int = 50) -> str:
-        """Self-service sign-up, decided atomically. Returns "active", "pending", "exists" or "full".
-
-        The very first account is active so someone can get in; every later one waits for approval.
-        An address that already exists is never changed, so nobody can overwrite another person's password.
-        """
-        address = email.lower()
-        c = sqlite3.connect(self.path, timeout=30, isolation_level=None)
-        try:
-            c.execute("BEGIN IMMEDIATE")
-            if c.execute("SELECT 1 FROM app_users WHERE email=?", (address,)).fetchone():
-                c.execute("ROLLBACK")
-                return "exists"
-            active = c.execute("SELECT COUNT(*) FROM app_users WHERE status='active'").fetchone()[0]
-            pending = c.execute("SELECT COUNT(*) FROM app_users WHERE status='pending'").fetchone()[0]
-            if active and pending >= max_pending:
-                c.execute("ROLLBACK")
-                return "full"
-            status = "pending" if active else "active"
-            c.execute("INSERT INTO app_users (email, password_hash, added_at, status) VALUES (?, ?, ?, ?)",
-                      (address, password_hash, now_iso(), status))
-            c.execute("COMMIT")
-            return status
-        finally:
-            c.close()
-
-    def approve_app_user(self, email: str) -> bool:
+    def create_app_user(self, email: str, password_hash: str | None) -> str:
+        """Self-service sign-up. Returns "created" or "exists". An existing address is never changed."""
         with self.conn() as c:
-            return c.execute("UPDATE app_users SET status='active' WHERE email=? AND status='pending'",
-                             (email.lower(),)).rowcount > 0
+            added = c.execute(
+                "INSERT OR IGNORE INTO app_users (email, password_hash, added_at, status) VALUES (?, ?, ?, 'active')",
+                (email.lower(), password_hash, now_iso()),
+            ).rowcount
+        return "created" if added else "exists"
 
     def get_app_user(self, email: str) -> dict[str, Any] | None:
         with self.conn() as c:
@@ -322,9 +300,19 @@ class Database:
 
     def list_app_users(self) -> list[dict[str, Any]]:
         with self.conn() as c:
-            rows = c.execute("SELECT email, status, password_hash IS NOT NULL AS has_password, added_at "
-                             "FROM app_users ORDER BY status DESC, email").fetchall()
+            rows = c.execute("SELECT email, password_hash IS NOT NULL AS has_password, added_at "
+                             "FROM app_users ORDER BY added_at, email").fetchall()
         return [dict(r) for r in rows]
+
+    def get_setting(self, key: str) -> str | None:
+        with self.conn() as c:
+            row = c.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
+        return str(row[0]) if row else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self.conn() as c:
+            c.execute("INSERT INTO app_settings (key, value) VALUES (?, ?) "
+                      "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
 
     def remove_app_user(self, email: str) -> bool:
         with self.conn() as c:

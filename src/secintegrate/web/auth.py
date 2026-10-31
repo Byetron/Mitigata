@@ -29,11 +29,8 @@ GOOGLE_ERRORS = {
     "state": "The sign-in session expired. Please try again.",
     "failed": "Google sign-in failed. Please try again.",
     "unverified": "That Google account's email address is not verified.",
-    "notallowed": "That Google account could not be added. Ask an existing user to run `hermes auth add EMAIL`.",
-    "pending": "Your request is waiting for approval by someone who already has access.",
 }
-PENDING_NOTICE = ("Thanks. If this address can be registered, it will be able to sign in as soon as someone who "
-                  "already has access approves it.")
+CAPTCHA_MAX_AGE = 600  # seconds a question stays valid
 
 
 # --- passwords -----------------------------------------------------------------------------
@@ -125,8 +122,8 @@ def register_auth(app: Flask, db: Database, options: WebOptions) -> None:
         if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint == "static":
             return None
         account = db.get_app_user(session["user"]) if session.get("user") else None
-        if account is None or account["status"] != "active":
-            session.clear()  # removed or not yet approved: the session stops working at once
+        if account is None:
+            session.clear()  # the account was removed: the session stops working at once
             if request.method != "GET" or request.path.startswith("/connectors/validate"):
                 abort(401)
             return redirect(f"/login?next={request.path}")
@@ -181,8 +178,6 @@ def register_auth(app: Flask, db: Database, options: WebOptions) -> None:
             throttle.fail(*keys)
             return login_page("Wrong email or password.", 401)
         throttle.clear(*keys)
-        if (user or {}).get("status") != "active":  # only reached with the right password
-            return login_page("Your account is waiting for approval by someone who already has access.", 403)
         return sign_in(email)
 
     @app.post("/logout")
@@ -222,21 +217,38 @@ def register_auth(app: Flask, db: Database, options: WebOptions) -> None:
                                                 options.transport)
         except google.GoogleAuthError as exc:
             return fail(exc.code)
-        user = db.get_app_user(email)
-        if user is None:  # first sign-in: the first account is active, later ones wait for approval
-            if db.create_app_user(email, None) == "full":
-                return fail("notallowed")
-            user = db.get_app_user(email)
-        if user is None or user["status"] != "active":
-            return fail("pending")
+        db.create_app_user(email, None)  # a first Google sign-in creates the account; an existing one is untouched
         return sign_in(email)
 
     # --- creating an account -------------------------------------------------------------------
-    def signup_page(error: str | None = None, notice: str | None = None, status: int = 200,
-                    email: str = "") -> tuple[str, int]:
-        return render_template("signup.html", error=error, notice=notice, email=email, page="login",
-                               google_enabled=options.google() is not None,
-                               min_length=MIN_PASSWORD_LENGTH), status
+    def captcha_mac(nonce: str, answer: int) -> str:
+        return hmac.new(str(app.secret_key).encode(), f"{nonce}:{answer}".encode(), "sha256").hexdigest()
+
+    def new_captcha() -> str:
+        """A small arithmetic question. The answer is never stored in the clear: only a keyed hash of it."""
+        a, b = secrets.randbelow(8) + 2, secrets.randbelow(8) + 2
+        plus = secrets.randbelow(2) == 0
+        if not plus and b > a:
+            a, b = b, a  # keep the answer positive
+        nonce = secrets.token_urlsafe(8)
+        session["captcha"] = {"nonce": nonce, "mac": captcha_mac(nonce, a + b if plus else a - b),
+                              "at": time.time()}
+        return f"What is {a} {'plus' if plus else 'minus'} {b}?"
+
+    def captcha_ok(given: str) -> bool:
+        """Single use: the question is thrown away whether or not the answer was right."""
+        pending = session.pop("captcha", None)
+        text = given.strip()
+        if not pending or time.time() - float(pending.get("at", 0)) > CAPTCHA_MAX_AGE:
+            return False
+        if not text.isdigit() or len(text) > 3:  # noqa: PLR2004
+            return False
+        return hmac.compare_digest(str(pending.get("mac", "")), captcha_mac(str(pending.get("nonce", "")), int(text)))
+
+    def signup_page(error: str | None = None, status: int = 200, email: str = "") -> tuple[str, int]:
+        return render_template("signup.html", error=error, email=email, page="login",
+                               google_enabled=options.google() is not None, min_length=MIN_PASSWORD_LENGTH,
+                               question=new_captcha()), status
 
     @app.get("/signup")
     def signup() -> tuple[str, int] | WerkzeugResponse:
@@ -252,6 +264,10 @@ def register_auth(app: Flask, db: Database, options: WebOptions) -> None:
         if throttle.blocked(key):
             return signup_page("Too many attempts. Wait 10 minutes and try again.", status=429, email=email)
         throttle.fail(key)  # every attempt counts, so this cannot be used to create accounts in bulk
+        if request.form.get("website"):  # a hidden field people never see: only programs fill it in
+            return signup_page("The account could not be created. Please try again.", status=400)
+        if not captcha_ok(request.form.get("captcha", "")):
+            return signup_page("That answer is not right. Try the new question.", status=400, email=email)
         if not EMAIL_RE.match(email):
             return signup_page("Enter a valid email address.", status=400, email=email)
         if len(password) < MIN_PASSWORD_LENGTH:
@@ -259,10 +275,6 @@ def register_auth(app: Flask, db: Database, options: WebOptions) -> None:
                                email=email)
         if password != (request.form.get("confirm") or ""):
             return signup_page("The two passwords do not match.", status=400, email=email)
-        outcome = db.create_app_user(email, hash_password(password))
-        if outcome == "active":  # the first account ever
-            return sign_in(email)
-        if outcome == "full":
-            return signup_page("Too many requests are waiting. Ask someone with access to review them first.",
-                               status=429, email=email)
-        return signup_page(notice=PENDING_NOTICE)  # same answer for new and existing addresses
+        if db.create_app_user(email, hash_password(password)) == "exists":
+            return signup_page("That email already has an account. Sign in instead.", status=409, email=email)
+        return sign_in(email)
