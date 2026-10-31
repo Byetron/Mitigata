@@ -130,3 +130,9 @@ Tests are in `tests/test_autoheal.py` and `tests/test_web_auth.py`.
   - a probe that gets 429 counts as reachable.
 - The starter template is now four short parts in plain words; the extras moved to `docs/connector-options.md`.
 - The navigation no longer shows a number next to **Users**. It was not requested.
+
+### Stale data is labelled
+
+- When a source's connector is failing, paused or degraded, the events area says so: a notice above the table
+  ("nvd is unavailable. These are the records from its last good update (...) and may be out of date." plus the reason),
+  and a coloured dot on that source's filter chip. The saved records stay visible, as they should. Tests in `tests/test_web.py`.

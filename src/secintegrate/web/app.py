@@ -7,6 +7,7 @@ from typing import Any
 
 import yaml
 from flask import Flask, Response, abort, jsonify, redirect, render_template, request
+from pydantic import ValidationError
 from werkzeug.wrappers import Response as RedirectResponse
 
 from ..config.loader import config_files, parse_config, read_yaml
@@ -32,6 +33,36 @@ def _register_connections(config_dir: Path, db: Database) -> None:
             continue
         if isinstance(data, dict) and isinstance(data.get("connector"), str):
             db.ensure_connection(data["connector"])
+
+
+_PROBLEM_ORDER = ("failing", "paused", "degraded")  # worst first
+_PROBLEM_WORDS = {
+    "failing": "is unavailable",
+    "paused": "is paused",
+    "degraded": "had a problem on its last update",
+}
+
+
+def source_freshness(config_dir: Path, db: Database, conns: list[dict[str, Any]],
+                     sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Add status, last good update and a plain message to each event source, so stale data is never silent."""
+    by_connector = {c["connector"]: c for c in conns}
+    owners: dict[str, list[str]] = {}
+    for f in config_files(config_dir):
+        try:
+            cfg = parse_config(f)
+        except (ValidationError, yaml.YAMLError):
+            continue
+        owners.setdefault(cfg.source, []).append(cfg.connector)
+    out: list[dict[str, Any]] = []
+    for s in sources:
+        rows = [by_connector[i] for i in owners.get(s["source"], []) if i in by_connector]
+        worst = next((r for state in _PROBLEM_ORDER for r in rows if r["status"] == state), None)
+        last_ok = max((t for t in (db.last_success(r["connector"]) for r in rows) if t), default=None)
+        out.append({**s, "status": worst["status"] if worst else "healthy",
+                    "problem": _PROBLEM_WORDS.get(worst["status"], "") if worst else "",
+                    "message": (worst or {}).get("message") or "", "last_ok": last_ok})
+    return out
 
 
 def create_app(config_dir: str | Path, db: Database, secret_names: SecretNames | None = None,
@@ -73,6 +104,9 @@ def create_app(config_dir: str | Path, db: Database, secret_names: SecretNames |
             c["spark"] = db.recent_probes(c["connector"], 24)
         counts = {s: sum(1 for c in conns if c["status"] == s)
                   for s in ("healthy", "degraded", "failing", "paused", "never_run")}
+        data["event_sources"] = source_freshness(config_dir, db, conns, data["event_sources"])
+        shown = [s for s in data["event_sources"] if not source or s["source"] == source]
+        data["source_problems"] = [s for s in shown if s["problem"]]
         return render_template("home.html", data=data, conns=conns, counts=counts, page="home", source=source)
 
     @app.get("/health")

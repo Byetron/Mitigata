@@ -25,6 +25,12 @@
          border: 1px solid var(--err-line); border-radius: 8px; word-break: break-word; }
   td.desc { color: var(--muted); }
   .remove { margin: 12px 0 0; text-align: right; }
+  .flag { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--warn); }
+  .flag.failing { background: var(--bad); }
+  .stale { margin: 0 0 12px; padding: 9px 12px; border-radius: 8px; font-size: .85rem; border: 1px solid var(--warn);
+           background: var(--card); }
+  .stale.failing { border-color: var(--bad); background: var(--err-bg); }
+  .stale .why { display: block; color: var(--muted); margin-top: 2px; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: -2px 0 14px; }
   .chip { font-size: .8rem; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line);
           color: var(--text); text-decoration: none; background: var(--bg); }
@@ -78,10 +84,20 @@
       <div class="chips">
         <a href="/#events" class="chip {{ 'on' if not source }}">All</a>
         {% for s in data.event_sources %}
-          <a href="/?source={{ s.source|urlencode }}#events" class="chip {{ 'on' if source == s.source }}">{{ s.source }}
+          <a href="/?source={{ s.source|urlencode }}#events" class="chip {{ 'on' if source == s.source }}"
+             {% if s.problem %}title="{{ s.source }} {{ s.problem }}"{% endif %}>
+            {% if s.problem %}<span class="flag {{ s.status }}" aria-label="{{ s.problem }}"></span>{% endif %}{{ s.source }}
             <span class="count">{{ '{:,}'.format(s.n) }}</span></a>
         {% endfor %}
       </div>
+      {% for p in data.source_problems %}
+      <div class="stale {{ p.status }}" role="status">
+        <strong>{{ p.source }} {{ p.problem }}.</strong>
+        {% if p.last_ok %}These are the records from its last good update ({{ p.last_ok.replace('T', ' ').replace('Z', '') }} UTC) and may be out of date.
+        {% else %}No update has ever succeeded, so these records may be incomplete.{% endif %}
+        {% if p.message %}<span class="why">{{ p.message }}</span>{% endif %}
+      </div>
+      {% endfor %}
       {% if data.recent_events %}
       <div class="scroll"><table>
         <thead><tr><th>Severity</th><th>ID</th><th>Type</th><th>Source</th><th>Date</th><th>Description</th></tr></thead>

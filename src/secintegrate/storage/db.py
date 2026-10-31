@@ -106,6 +106,15 @@ class Database:
             ).fetchone()
         return dict(row) if row else None
 
+    def last_success(self, connector: str) -> str | None:
+        """When this connector last finished a run that stored data (success or partial)."""
+        with self.conn() as c:
+            row = c.execute(
+                "SELECT MAX(finished_at) FROM runs WHERE connector=? AND status IN ('success', 'partial')",
+                (connector,),
+            ).fetchone()
+        return str(row[0]) if row and row[0] else None
+
     def add_quarantine(self, run_id: int, connector: str, endpoint: str, index: int, reason: str, raw: Any) -> bool:
         """Store a bad record. An identical record already waiting is not stored twice. Returns True if new."""
         try:
