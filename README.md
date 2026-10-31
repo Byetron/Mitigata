@@ -3,6 +3,17 @@
 Config-driven security integration platform. Each source is one YAML file in `config/connectors/`;
 no code changes are needed to add a source. See `PLATFORM_SPEC.md` for the full design.
 
+## Connectors
+
+| Connector | Source | Auth | Paging | Lands in |
+|---|---|---|---|---|
+| `github_advisories` | GitHub Security Advisories | bearer token | link header | events |
+| `nvd_cve` | NIST NVD CVE API 2.0 | API key header | offset | events |
+| `cisa_kev` | CISA Known Exploited Vulnerabilities | none | single request | events |
+| `epss_high_risk` | FIRST EPSS (score above 0.9) | none | offset | events |
+| `hibp_breaches` | Have I Been Pwned breach list | none | single request | events |
+| `feodo_c2` | abuse.ch Feodo botnet C2 IPs | none | single request | devices |
+
 ## Setup
 
 ```powershell
