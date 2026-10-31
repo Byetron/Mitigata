@@ -24,7 +24,14 @@
   .err { margin-top: 10px; padding: 8px 10px; font-size: .78rem; color: var(--bad); background: var(--err-bg);
          border: 1px solid var(--err-line); border-radius: 8px; word-break: break-word; }
   td.desc { color: var(--muted); }
-  .remove { margin: 12px 0 0; text-align: right; }
+  .remove { margin: 12px 0 0; text-align: right; display: inline-block; float: right; }
+  .cwrap { display: flex; flex-direction: column; gap: 6px; }
+  .cfg-note { font-size: .8rem; color: var(--bad); background: var(--err-bg); border-radius: 8px; padding: 8px 12px; }
+  .edit { display: inline-block; margin-top: 12px; }
+  .diag { margin-top: 10px; font-size: 13px; }
+  .diag summary { cursor: pointer; font-weight: 600; }
+  .diag ul { padding-left: 18px; }
+  .muted { color: #6b7280; }
   .flag { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--warn); }
   .flag.failing { background: var(--bad); }
   .stale { margin: 0 0 12px; padding: 9px 12px; border-radius: 8px; font-size: .85rem; border: 1px solid var(--warn);
@@ -55,9 +62,10 @@
   <h2>Connector health</h2>
   <div class="grid conns">
     {% for c in conns %}
+    <div class="cwrap">
     <div class="card conn {{ c.status }}">
       <div class="top"><span class="name"><span class="dot"></span>{{ c.connector }}</span>
-        <span class="pill">{{ c.status.replace('_', ' ') }}</span></div>
+        <span class="pill">{{ c.status.replace('_', ' ') }}{{ ' (config error)' if c.config_note }}</span></div>
       <dl>
         <dt>Last run</dt><dd>{{ c.last_run_finished_at or 'never' }}</dd>
         <dt>Records pulled</dt><dd>{{ '{:,}'.format(c.last_records_pulled or 0) }}</dd>
@@ -68,11 +76,25 @@
         {% for p in c.spark %}<span class="{{ 'up' if p.ok else 'down' }}" title="{{ p.checked_at }}{{ '' if p.ok else ' ' ~ (p.category or 'failed') }}"></span>{% else %}<em>no probe checks yet</em>{% endfor %}
       </div>
       {% if c.message %}<div class="err">{{ c.message }}</div>{% endif %}
+      {% if c.diagnosis and c.diagnosis.verdict != 'healthy' %}
+      <details class="diag"><summary>What went wrong: {{ c.diagnosis.root_cause.title if c.diagnosis.root_cause else c.diagnosis.verdict }}</summary>
+        <p>{{ c.diagnosis.summary }}</p>
+        <ul>{% for f in c.diagnosis.findings if f.level in ('warn', 'error') %}
+          <li><strong>{{ f.title }}.</strong> {{ f.detail }}{% if f.fix %} <em>Fix: {{ f.fix }}</em>{% endif %}</li>{% endfor %}</ul>
+        {% if c.bad_requests %}<p class="muted">Recent failed requests:
+          {% for q in c.bad_requests %}{{ q.method }} {{ q.path }} &rarr; {{ q.status or q.error or 'no reply' }} ({{ q.latency_ms }} ms){{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+        <p class="muted">Checked {{ c.diagnosis.at }}. Run <code>hermes diagnose {{ c.connector }}</code> for a live check.</p>
+      </details>{% endif %}
+      <a href="/connectors/{{ c.connector }}/edit" class="edit">Edit</a>
       <form method="post" action="/connectors/{{ c.connector }}/delete" class="remove"
             onsubmit="return confirm('Remove {{ c.connector }}? Its config moves to .trash, and its health history and every record it fetched are deleted.');">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="danger">Remove</button>
       </form>
+    </div>
+    {% if c.config_issues %}<div class="cfg-note"><strong>{{ c.connector }}:</strong> your last edit has
+      {{ c.config_issues|length }} error{{ 's' if c.config_issues|length != 1 }} and was not saved.
+      <a href="/connectors/{{ c.connector }}/edit">Open the editor</a> to see and fix {{ 'them' if c.config_issues|length != 1 else 'it' }}.</div>{% endif %}
     </div>
     {% else %}<div class="card empty">You have no connectors yet. <a href="/connectors/new">Create your first connector</a>
       from a preset, or write it in YAML. Each account has its own connectors, data and keys.</div>{% endfor %}

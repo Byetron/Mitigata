@@ -169,7 +169,8 @@ def run_connector(
     try:
         for name in secret_env_names(cfg.auth):
             vault.load(name)  # fails fast, and registers the value for log redaction
-        client = ApiClient(cfg, vault, throttle=throttle, sleep=sleep, transport=transport)
+        client = ApiClient(cfg, vault, throttle=throttle, sleep=sleep, transport=transport,
+                           recorder=db.recorder(cfg.connector), kind="run")
         for ep in cfg.endpoints:
             cursor = _run_endpoint(cfg, ep, cfg.base_url, client, db, run_id, totals)
             if cursor:

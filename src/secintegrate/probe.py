@@ -15,9 +15,11 @@ from .config.schema import ConnectorConfig
 from .health import PAUSE_AFTER, refresh_connection
 from .http.client import ApiClient
 from .http.retry import FetchError
+from .http.trace import Recorder
 from .notify import Notifier
 from .remediate import MessageContext, human_message
 from .security.errors import SecIntegrateError
+from .security.ports import SecretLoader
 from .security.vault import SecretVault
 from .storage.db import Database
 
@@ -59,7 +61,7 @@ def probe_connector(
     if current.get("paused"):
         return None
 
-    result = _send_probe(cfg, vault, sleep, transport)
+    result = _send_probe(cfg, vault, sleep, transport, db.recorder(cfg.connector))
     db.add_probe(cfg.connector, result.ok, result.category.value if result.category else None,
                  result.status, result.latency_ms)
 
@@ -82,10 +84,10 @@ def probe_connector(
     return result
 
 
-def _send_probe(cfg: ConnectorConfig, vault: SecretVault, sleep: Callable[[float], None],
-                transport: httpx.BaseTransport | None) -> ProbeResult:
+def _send_probe(cfg: ConnectorConfig, vault: SecretLoader, sleep: Callable[[float], None],
+                transport: httpx.BaseTransport | None, recorder: Recorder | None = None) -> ProbeResult:
     assert cfg.probe is not None  # noqa: S101 - callers check; keeps the type checker precise
-    client = ApiClient(cfg, vault, sleep=sleep, transport=transport)
+    client = ApiClient(cfg, vault, sleep=sleep, transport=transport, recorder=recorder, kind="probe")
     try:
         response = client.probe(cfg.probe, cfg.base_url)
     except (FetchError, SecIntegrateError, httpx.HTTPError) as exc:
@@ -123,7 +125,7 @@ def recheck_paused(
         return False
     if current.get("last_category") not in (None, FailureCategory.AUTH_FAILED.value):
         return False
-    result = _send_probe(cfg, vault, sleep, transport)
+    result = _send_probe(cfg, vault, sleep, transport, db.recorder(cfg.connector))
     db.add_probe(cfg.connector, result.ok, result.category.value if result.category else None,
                  result.status, result.latency_ms)
     if not result.ok:

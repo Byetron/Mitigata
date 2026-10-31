@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from ..http.trace import RequestRecord
 from ..secrets import redact
 
 TABLES = {
@@ -17,7 +18,10 @@ TABLES = {
     "event": ("events", ["type", "severity", "timestamp", "description"]),
 }
 # The `secrets` table is deliberately NOT here: resetting data must never destroy stored keys.
-ALL_TABLES = ["users", "devices", "events", "connections", "runs", "quarantine", "sync_state", "probes"]
+ALL_TABLES = ["users", "devices", "events", "connections", "runs", "quarantine", "sync_state", "probes",
+              "api_requests", "diagnoses", "tool_calls", "pending_retries", "config_issues"]
+REQUEST_RETENTION_DAYS = 7
+REQUESTS_PER_CONNECTOR = 1000
 CONNECTION_COLUMNS = {
     "status", "last_run_started_at", "last_run_finished_at", "last_records_pulled", "last_error",
     "consecutive_failures", "paused", "last_category", "message",
@@ -170,7 +174,8 @@ class Database:
     def delete_connector_state(self, connector: str) -> None:
         """Forget a removed connector's health, history, probes and cursor."""
         with self.conn() as c:
-            for table in ("connections", "runs", "quarantine", "sync_state", "probes"):
+            for table in ("connections", "runs", "quarantine", "sync_state", "probes", "api_requests", "diagnoses",
+                          "tool_calls", "pending_retries", "config_issues"):
                 c.execute(f"DELETE FROM {table} WHERE connector=?", (connector,))  # noqa: S608
 
     # --- probes ----------------------------------------------------------
@@ -201,8 +206,90 @@ class Database:
             ).fetchall()
         return [dict(r) for r in reversed(rows)]
 
+    # --- the request record, diagnoses and tool calls ----------------------------------------------
+    def add_request(self, connector: str, rec: RequestRecord) -> None:
+        cutoff = (datetime.now(UTC) - timedelta(days=REQUEST_RETENTION_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with self.conn() as c:
+            c.execute(
+                "INSERT INTO api_requests (connector, at, kind, method, host, path, params, status, latency_ms, bytes, "
+                "content_type, rate_remaining, retry_after, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (connector, now_iso(), rec.kind, rec.method, rec.host, rec.path, rec.params, rec.status,
+                 rec.latency_ms, rec.bytes, rec.content_type, rec.rate_remaining, rec.retry_after, rec.error),
+            )
+            c.execute("DELETE FROM api_requests WHERE at < ?", (cutoff,))
+            c.execute("DELETE FROM api_requests WHERE connector=? AND id NOT IN "
+                      "(SELECT id FROM api_requests WHERE connector=? ORDER BY id DESC LIMIT ?)",
+                      (connector, connector, REQUESTS_PER_CONNECTOR))
+
+    def recorder(self, connector: str, ) -> Callable[[RequestRecord], None]:
+        """A function the HTTP client calls after every request, bound to one connector."""
+        return lambda rec: self.add_request(connector, rec)
+
+    def recent_requests(self, connector: str, limit: int = 50) -> list[dict[str, Any]]:
+        with self.conn() as c:
+            rows = c.execute("SELECT * FROM api_requests WHERE connector=? ORDER BY id DESC LIMIT ?",
+                             (connector, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_diagnosis(self, connector: str, verdict: str, report_json: str) -> None:
+        with self.conn() as c:
+            c.execute("INSERT INTO diagnoses (connector, at, verdict, report) VALUES (?, ?, ?, ?) "
+                      "ON CONFLICT(connector) DO UPDATE SET at=excluded.at, verdict=excluded.verdict, "
+                      "report=excluded.report", (connector, now_iso(), verdict, report_json))
+
+    def get_diagnosis(self, connector: str) -> dict[str, Any] | None:
+        with self.conn() as c:
+            row = c.execute("SELECT * FROM diagnoses WHERE connector=?", (connector,)).fetchone()
+        return dict(row) if row else None
+
+    def add_tool_call(self, tool: str, connector: str | None, caller: str, arguments: str, ok: bool,
+                      message: str) -> None:
+        with self.conn() as c:
+            c.execute("INSERT INTO tool_calls (at, tool, connector, caller, arguments, ok, message) "
+                      "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                      (now_iso(), tool, connector, caller, redact(arguments), int(ok), redact(message)))
+
+    def recent_tool_calls(self, connector: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+        with self.conn() as c:
+            if connector:
+                rows = c.execute("SELECT * FROM tool_calls WHERE connector=? ORDER BY id DESC LIMIT ?",
+                                 (connector, limit)).fetchall()
+            else:
+                rows = c.execute("SELECT * FROM tool_calls ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_config_issues(self, connector: str, issues_json: str) -> None:
+        with self.conn() as c:
+            c.execute("INSERT INTO config_issues (connector, at, issues) VALUES (?, ?, ?) "
+                      "ON CONFLICT(connector) DO UPDATE SET at=excluded.at, issues=excluded.issues",
+                      (connector, now_iso(), redact(issues_json)))
+
+    def clear_config_issues(self, connector: str) -> None:
+        with self.conn() as c:
+            c.execute("DELETE FROM config_issues WHERE connector=?", (connector,))
+
+    def get_config_issues(self, connector: str) -> dict[str, Any] | None:
+        with self.conn() as c:
+            row = c.execute("SELECT * FROM config_issues WHERE connector=?", (connector,)).fetchone()
+        return dict(row) if row else None
+
+    def save_retry(self, connector: str, due: datetime) -> None:
+        with self.conn() as c:
+            c.execute("INSERT INTO pending_retries (connector, due_at) VALUES (?, ?) "
+                      "ON CONFLICT(connector) DO UPDATE SET due_at=excluded.due_at",
+                      (connector, due.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")))
+
+    def clear_retry(self, connector: str) -> None:
+        with self.conn() as c:
+            c.execute("DELETE FROM pending_retries WHERE connector=?", (connector,))
+
+    def pending_retry(self, connector: str) -> datetime | None:
+        with self.conn() as c:
+            row = c.execute("SELECT due_at FROM pending_retries WHERE connector=?", (connector,)).fetchone()
+        return datetime.strptime(row["due_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC) if row else None
+
     def count_rows(self, table: str, connector: str) -> int:
-        if table not in ("probes", "runs", "quarantine"):
+        if table not in ("probes", "runs", "quarantine", "api_requests", "tool_calls"):
             raise ValueError(table)
         with self.conn() as c:
             return int(c.execute(f"SELECT COUNT(*) FROM {table} WHERE connector=?", (connector,)).fetchone()[0])  # noqa: S608

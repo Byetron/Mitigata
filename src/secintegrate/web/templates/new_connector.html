@@ -46,10 +46,10 @@
   </div>
 {% endmacro %}
 
-{% macro field(name, label, hint='') %}
+{% macro field(name, label, hint='', req=False) %}
   <div class="field {{ 'has-error' if by_field.get(name) }}">
-    <label for="{{ name }}">{{ label }}{% if hint %}<span class="hint">{{ hint }}</span>{% endif %}</label>
-    <input id="{{ name }}" name="{{ name }}" value="{{ v[name] }}" autocomplete="off">
+    <label for="{{ name }}">{{ label }}{% if req %} <span style="color:#dc2626" title="required">*</span>{% endif %}{% if hint %}<span class="hint">{{ hint }}</span>{% endif %}</label>
+    <input id="{{ name }}" name="{{ name }}" value="{{ v[name] }}" autocomplete="off"{{ ' required' if req }}>
     {{ issues_for(name) }}
   </div>
 {% endmacro %}
@@ -101,10 +101,10 @@
     <div class="card">
       <h3>Connector</h3>
       <div class="fields">
-        {{ field('connector_id', 'Connector id', '2 to 41 lowercase letters, digits, underscores') }}
-        {{ field('source', 'Source label') }}
-        {{ field('base_url', 'Base URL', 'must start with https://') }}
-        {{ field('schedule', 'Schedule', 'five-field cron, e.g. */15 * * * *') }}
+        {{ field('connector_id', 'Connector id', '2 to 41 lowercase letters, digits, underscores', req=True) }}
+        {{ field('source', 'Source label', req=True) }}
+        {{ field('base_url', 'Base URL', 'must start with https://', req=True) }}
+        {{ field('schedule', 'Schedule', 'five-field cron, e.g. */15 * * * *', req=True) }}
       </div>
     </div>
 
@@ -121,8 +121,8 @@
     <div class="card">
       <h3>Endpoint</h3>
       <div class="fields">
-        {{ field('endpoint_name', 'Endpoint name') }}
-        {{ field('path', 'Path', 'starts with /') }}
+        {{ field('endpoint_name', 'Endpoint name', req=True) }}
+        {{ field('path', 'Path', 'starts with /', req=True) }}
         {{ field('records_path', 'Records path', 'empty if the response is the list') }}
       </div>
     </div>

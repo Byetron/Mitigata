@@ -4,6 +4,8 @@ Every page works on the signed-in account's own workspace (its connectors, recor
 """
 from __future__ import annotations
 
+import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -12,10 +14,11 @@ from flask import Flask, Response, abort, jsonify, redirect, render_template, re
 from pydantic import ValidationError
 from werkzeug.wrappers import Response as RedirectResponse
 
-from ..config.loader import config_files, parse_config, read_yaml
+from ..config.loader import config_files, find_connector_file, parse_config, read_yaml
 from ..config.schema import TARGET_FIELDS
 from ..config.validator import ValidationIssue, existing_ids, has_errors, validate_text
 from ..connector_files import remove_connector, template_text, write_connector
+from ..diagnose import Diagnosis
 from ..secrets import redact
 from ..storage.db import Database
 from ..transforms import TRANSFORMS
@@ -42,6 +45,29 @@ _PROBLEM_WORDS = {
     "paused": "is paused",
     "degraded": "had a problem on its last update",
 }
+
+
+def _stored_issues(row: dict[str, Any] | None) -> tuple[list[dict[str, Any]], str | None]:
+    """(issues, draft text) of a rejected edit; old rows held a bare list of issues."""
+    if row is None:
+        return [], None
+    try:
+        data = json.loads(row["issues"])
+    except ValueError:
+        return [], None
+    if isinstance(data, list):
+        return data, None
+    return list(data.get("issues", [])), data.get("draft")
+
+
+def _saved_diagnosis(db: Database, connector: str) -> Diagnosis | None:
+    saved = db.get_diagnosis(connector)
+    if saved is None:
+        return None
+    try:
+        return Diagnosis.from_json(saved["report"])
+    except (ValueError, KeyError, TypeError):
+        return None
 
 
 def source_freshness(config_dir: Path, db: Database, conns: list[dict[str, Any]],
@@ -122,6 +148,14 @@ def create_app(config_dir: str | Path, db: Database, secret_names: SecretNames |
             r["last_error"] = redact(r["last_error"]) if r["last_error"] else ""
             r["message"] = redact(r["message"]) if r.get("message") else ""
             r["spark"] = c.db.recent_probes(r["connector"], 24)
+            saved_issues = c.db.get_config_issues(r["connector"])
+            r["config_issues"] = _stored_issues(saved_issues)[0]
+            if r["config_issues"] and r["status"] == "healthy":
+                r["status"] = "degraded"  # the saved config is no longer what the user wants
+                r["config_note"] = True
+            r["diagnosis"] = _saved_diagnosis(c.db, r["connector"])
+            r["bad_requests"] = [q for q in c.db.recent_requests(r["connector"], 30)
+                                 if q["status"] is None or q["status"] >= 400][:3]  # noqa: PLR2004
         counts = {s: sum(1 for r in conns if r["status"] == s)
                   for s in ("healthy", "degraded", "failing", "paused", "never_run")}
         data["event_sources"] = source_freshness(c.config_dir, c.db, conns, data["event_sources"])
@@ -141,6 +175,47 @@ def create_app(config_dir: str | Path, db: Database, secret_names: SecretNames |
         if opts.hooks is not None:
             opts.hooks.removed(owner(), connector)
         return redirect("/")
+
+    def edit_page(connector: str, text: str, issues: Sequence[Any], status: int = 200,
+                  saved: bool = False, restored: bool = False) -> tuple[str, int]:
+        return render_template("edit_connector.html", connector=connector, yaml_text=text, issues=issues,
+                               saved=saved, restored=restored, page="home"), status
+
+    @app.get("/connectors/<connector>/edit")
+    def edit_connector(connector: str) -> tuple[str, int]:
+        file = find_connector_file(ctx().config_dir, connector)
+        if file is None:
+            abort(404)
+        stored, draft = _stored_issues(ctx().db.get_config_issues(connector))
+        if draft is not None:
+            return edit_page(connector, draft, stored, restored=True)  # the unsaved draft, with its errors
+        return edit_page(connector, file.read_text(encoding="utf-8"), [])
+
+    @app.post("/connectors/<connector>/edit")
+    def save_connector(connector: str) -> tuple[str, int]:
+        c = ctx()
+        file = find_connector_file(c.config_dir, connector)
+        if file is None:
+            abort(404)
+        text = request.form.get("yaml_text") or ""
+        if len(text.encode("utf-8")) > MAX_YAML_BYTES:
+            abort(413)
+        names = c.secret_names() if c.secret_names else None
+        cfg, issues = validate_text(text, file.name, existing_ids(c.config_dir) - {connector}, names,
+                                    allow_internal=False)
+        if cfg is not None and cfg.connector != connector:
+            issues.append(ValidationIssue("connector", 1, "The id cannot be changed here.", "error", file.name))
+        if cfg is None or has_errors(issues):
+            c.db.save_config_issues(connector, json.dumps({
+                "issues": [{"line": i.line, "message": i.message, "severity": "error"}
+                           for i in issues if i.severity == "error"], "draft": text}))
+            return edit_page(connector, text, issues, 400)
+        c.db.clear_config_issues(connector)
+        write_connector(c.config_dir, connector, text if text.endswith("\n") else text + "\n")
+        if opts.hooks is not None:
+            opts.hooks.removed(owner(), connector)
+            opts.hooks.added(owner(), cfg)
+        return edit_page(connector, text, issues, saved=True)
 
     def render_form(values: dict[str, Any], issues: list[ValidationIssue] | None = None,
                     result: dict[str, str] | None = None, status: int = 200, tab: str = "form",

@@ -18,7 +18,9 @@ from .autoheal import AUTH_RECHECK_MINUTES
 from .bootstrap import App
 from .config.schema import ConnectorConfig
 from .probe import probe_connector, recheck_paused
+from .repair import repair
 from .runner import run_connector
+from .tools import ToolContext
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +46,22 @@ class HermesScheduler(BackgroundScheduler):  # type: ignore[misc]
         self.entries: dict[tuple[str, str], tuple[ConnectorConfig, App]] = {}
 
     def add_connector(self, cfg: ConnectorConfig, app: App, owner: str = "") -> None:
+        if not cfg.enabled:  # a disabled connector is not run by anything: no cron, retry, recheck or repair
+            self.remove_connector(cfg.connector, owner)
+            return
         self.entries[(owner, cfg.connector)] = (cfg, app)
         add_connector_jobs(self, cfg, app, owner)
+        self._restore_retry(cfg, app, owner)
+
+    def _restore_retry(self, cfg: ConnectorConfig, app: App, owner: str) -> None:
+        """A retry that was waiting when the server stopped runs again: at its time, or shortly after start-up."""
+        due = app.db.pending_retry(cfg.connector)
+        if due is None or not cfg.enabled:
+            return
+        when = max(due, datetime.now(UTC) + timedelta(seconds=FIRST_RUN_DELAY_SECONDS))
+        self.add_job(_run_job, DateTrigger(run_date=when), args=[cfg, app, self, owner],
+                     id=_retry_id(cfg.connector, owner), replace_existing=True, misfire_grace_time=300)
+        logger.info("%s: restored a pending retry", cfg.connector)
 
     def add_and_fetch(self, cfg: ConnectorConfig, app: App, owner: str = "") -> bool:
         """Start running a newly added connector and fetch its first data about a second from now.
@@ -75,9 +91,12 @@ def _run_job(cfg: ConnectorConfig, app: App, sched: BackgroundScheduler, owner: 
         when = datetime.now(UTC) + timedelta(minutes=result.retry_in_minutes)
         sched.add_job(_run_job, DateTrigger(run_date=when), args=[cfg, app, sched, owner], id=job_id,
                       replace_existing=True, misfire_grace_time=300)
+        app.db.save_retry(cfg.connector, when)
         logger.info("%s: automatic retry scheduled in %d minutes", cfg.connector, result.retry_in_minutes)
-    elif sched.get_job(job_id):
-        sched.remove_job(job_id)
+    else:
+        app.db.clear_retry(cfg.connector)
+        if sched.get_job(job_id):
+            sched.remove_job(job_id)
 
 
 def _probe_job(cfg: ConnectorConfig, app: App) -> None:
@@ -93,6 +112,18 @@ def _recheck_job(sched: HermesScheduler) -> None:
             recheck_paused(cfg, app.db, app.vault, app.notifier)
         except Exception as exc:
             logger.error("%s: credential recheck crashed with %s", cfg.connector, type(exc).__name__)
+        _auto_repair(cfg, app)
+
+
+def _auto_repair(cfg: ConnectorConfig, app: App) -> None:
+    """Hourly: a connector that is not healthy gets one pass of the safe repair tools."""
+    status = (app.db.get_connection(cfg.connector) or {}).get("status")
+    if status in (None, "healthy", "never_run"):
+        return
+    try:
+        repair(ToolContext(cfg, app.db, app.vault, app.notifier), caller="auto")
+    except Exception as exc:
+        logger.error("%s: auto-repair crashed with %s", cfg.connector, type(exc).__name__)
 
 
 def add_connector_jobs(sched: BackgroundScheduler, cfg: ConnectorConfig, app: App, owner: str = "") -> None:

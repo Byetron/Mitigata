@@ -5,10 +5,10 @@ import base64
 
 from .config.schema import Auth
 from .secrets import register
-from .security.vault import SecretVault
+from .security.ports import SecretLoader
 
 
-def build_auth_headers(auth: Auth, vault: SecretVault) -> dict[str, str]:
+def build_auth_headers(auth: Auth, vault: SecretLoader) -> dict[str, str]:
     kind = auth.type
     if kind == "none":
         return {}

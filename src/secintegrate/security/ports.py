@@ -14,6 +14,12 @@ class KeyBackend(Protocol):
     def set(self, service: str, account: str, value: str) -> None: ...
 
 
+class SecretLoader(Protocol):
+    """Anything that can hand over a named secret. The vault does; so can a stand-in used to test a cleaned value."""
+
+    def load(self, name: str) -> Secret: ...
+
+
 class Cipher(Protocol):
     def encrypt(self, key: bytes, name: str, plaintext: str) -> bytes: ...
 

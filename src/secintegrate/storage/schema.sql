@@ -101,3 +101,52 @@ CREATE TABLE IF NOT EXISTS app_settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS api_requests (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  connector     TEXT NOT NULL,
+  at            TEXT NOT NULL,
+  kind          TEXT NOT NULL,
+  method        TEXT,
+  host          TEXT,
+  path          TEXT,
+  params        TEXT,
+  status        INTEGER,
+  latency_ms    INTEGER,
+  bytes         INTEGER,
+  content_type  TEXT,
+  rate_remaining TEXT,
+  retry_after   TEXT,
+  error         TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_requests_connector ON api_requests (connector, id);
+
+CREATE TABLE IF NOT EXISTS diagnoses (
+  connector TEXT PRIMARY KEY,
+  at        TEXT NOT NULL,
+  verdict   TEXT NOT NULL,
+  report    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tool_calls (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  at         TEXT NOT NULL,
+  tool       TEXT NOT NULL,
+  connector  TEXT,
+  caller     TEXT NOT NULL,
+  arguments  TEXT,
+  ok         INTEGER NOT NULL,
+  message    TEXT
+);
+
+CREATE TABLE IF NOT EXISTS pending_retries (
+  connector TEXT PRIMARY KEY,
+  due_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS config_issues (
+  connector TEXT PRIMARY KEY,
+  at        TEXT NOT NULL,
+  issues    TEXT NOT NULL
+);

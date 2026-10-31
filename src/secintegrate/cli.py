@@ -13,6 +13,7 @@ import typer
 from .bootstrap import App, build_app
 from .cli_auth import auth_app
 from .cli_common import CONFIG_DIR, DB_OPTION, USER_OPTION, friendly_errors, resolve_db, workspace_app
+from .cli_diag import diagnose_cmd, repair_cmd, tools_cmd
 from .cli_secrets import secret_app
 from .config.loader import config_files, find_connector_file, parse_config
 from .config.schema import ConnectorConfig
@@ -95,6 +96,9 @@ def run(connector: str = typer.Argument(..., help="Connector id."),
     if file is None:
         typer.echo(f"No connector '{connector}' found in {ctx.config_dir}.")
         raise typer.Exit(2)
+    if not parse_config(file).enabled:
+        typer.echo(f"'{connector}' is disabled (enabled: false). Enable it in its YAML to run it.")
+        raise typer.Exit(1)
     issues = [i for i in validate_dir(ctx.config_dir, ctx.vault.list_names()) if Path(i.file) == file]
     if has_errors(issues):
         for i in issues:
@@ -138,6 +142,11 @@ def remove(connector: str = typer.Argument(..., help="Connector id to remove."),
         raise typer.Exit(2)
     typer.echo(f"Removed {connector} and deleted {removed.records} fetched record(s). "
                f"Its config was kept at {removed.config}.")
+
+
+app.command("diagnose")(diagnose_cmd)
+app.command("repair")(repair_cmd)
+app.command("tools")(tools_cmd)
 
 
 @app.command()

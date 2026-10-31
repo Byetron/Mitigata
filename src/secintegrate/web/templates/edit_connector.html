@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ connector }} | Hermes{% endblock %}
+{% block heading %}Edit {{ connector }}{% endblock %}
+{% block subtitle %}This edits the connector's YAML file. Saving restarts its schedule. The id cannot change.{% endblock %}
+{% block style %}
+  textarea { width: 100%; min-height: 520px; font: .82rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text);
+             background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; resize: vertical; tab-size: 2; }
+  .actions { display: flex; gap: 8px; margin-top: 12px; }
+  .issue { padding: 4px 0; }
+  .line { color: var(--muted); margin-right: 6px; }
+{% endblock %}
+{% block content %}
+<form method="post" action="/connectors/{{ connector }}/edit" style="max-width:860px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="card">
+    {% if restored %}<p><strong>Your unsaved draft was restored.</strong> The connector still runs on the last saved version.</p>{% endif %}
+    {% if saved %}<p><strong>Saved.</strong> The new settings are live.</p>{% endif %}
+    {% for i in issues %}<div class="issue {{ i.severity }}"><span class="line">line {{ i.line }}</span>{{ i.message }}</div>{% endfor %}
+    <textarea name="yaml_text" spellcheck="false" autocomplete="off" required>{{ yaml_text }}</textarea>
+    <div class="actions"><button type="submit">Validate and save</button><a href="/">Back</a></div>
+  </div>
+</form>
+{% endblock %}
