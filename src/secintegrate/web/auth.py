@@ -266,23 +266,3 @@ def register_auth(app: Flask, db: Database, options: WebOptions) -> None:
             return signup_page("Too many requests are waiting. Ask someone with access to review them first.",
                                status=429, email=email)
         return signup_page(notice=PENDING_NOTICE)  # same answer for new and existing addresses
-
-    # --- people who can sign in: approve, reject, remove -------------------------------------------
-    @app.get("/users")
-    def users() -> str:
-        return render_template("users.html", accounts=db.list_app_users(), page="users", me=session.get("user"))
-
-    @app.post("/users/approve")
-    def users_approve() -> WerkzeugResponse:
-        if not db.approve_app_user(request.form.get("email", "")):
-            abort(404)
-        return redirect("/users")
-
-    @app.post("/users/remove")
-    def users_remove() -> WerkzeugResponse:
-        email = (request.form.get("email") or "").strip().lower()
-        if email == session.get("user"):
-            abort(400, "You cannot remove your own account.")
-        if not db.remove_app_user(email):
-            abort(404)
-        return redirect("/users")

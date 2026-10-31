@@ -99,7 +99,7 @@ Tests are in `tests/test_autoheal.py` and `tests/test_web_auth.py`.
 ### Account creation (`tests/test_signup.py`)
 
 - `/signup` page with a link from the sign-in page; the first account is active, later ones are `pending` until approved on
-  `/users` or with `hermes auth approve`. Google first sign-in follows the same rule. Existing addresses are never changed,
+  `hermes auth approve` (there is no Users page in the web app). Google first sign-in follows the same rule. Existing addresses are never changed,
   sign-up answers the same for new and existing addresses, every attempt counts toward a 10-minute limit, and at most 50
   requests can wait.
 - A removed or unapproved user's session stops working on their next request.

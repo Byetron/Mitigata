@@ -66,7 +66,6 @@
       <a href="/" class="{{ 'active' if page == 'home' }}">Home</a>
       <a href="/connectors/new" class="{{ 'active' if page == 'new' }}">New connector</a>
       {% if current_user %}
-      <a href="/users" class="{{ 'active' if page == 'users' }}">Users</a>
       <form method="post" action="/logout" class="signout">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <span class="who" title="Signed in">{{ current_user }}</span>

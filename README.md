@@ -54,7 +54,7 @@ pytest ; ruff check src tests ; mypy
 
 The dashboard needs a sign-in. The easiest start is the **Create account** link on the sign-in page: **the first
 account created gets in straight away**, and **every later account waits** until someone who already has access approves
-it on the **Users** page (or with `hermes auth approve EMAIL`). A first-time Google sign-in follows the same rule, so
+from the terminal with `hermes auth approve EMAIL` (the web app has no user-management page). A first-time Google sign-in follows the same rule, so
 nobody can sign themselves in. Prefer the terminal? Run this once:
 
 ```powershell
@@ -67,7 +67,7 @@ hermes auth list ; hermes auth approve bob@example.com ; hermes auth remove you@
 application* and add the redirect URI `http://127.0.0.1:8000/auth/callback` (exactly that: Hermes sends people who
 open `localhost:8000` to `127.0.0.1:8000` so the sign-in cookie and Google's redirect agree). Then store its two values:
 `hermes secret set GOOGLE_CLIENT_ID` and `hermes secret set GOOGLE_CLIENT_SECRET`. Only addresses you allowed with
-`hermes auth add` or approved on the Users page, and that Google says are verified, can sign in. Hermes uses the authorization-code flow with PKCE
+`hermes auth add` or approved with `hermes auth approve`, and that Google says are verified, can sign in. Hermes uses the authorization-code flow with PKCE
 and keeps no Google tokens.
 
 Passwords are stored as salted scrypt hashes. Five wrong attempts lock that account (and your address) for ten minutes.

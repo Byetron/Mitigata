@@ -129,20 +129,27 @@ def test_signup_is_throttled_and_needs_a_csrf_token(tmp_path: Path, db: Database
     assert sign_up(client, OTHER).status_code == 429
 
 
-# --- approval ---------------------------------------------------------------------------------------
-def test_an_existing_user_approves_a_request(tmp_path: Path, db: Database) -> None:
+# --- approval (command line only: the web app has no user section) ----------------------------------------
+def _signed_in(tmp_path: Path, db: Database, email: str) -> FlaskClient:
+    client = make_client(tmp_path, db)
+    csrf = csrf_from(client, "/login")
+    client.post("/login", data={"email": email, "password": PASSWORD, "csrf_token": csrf})
+    return client
+
+
+def test_a_pending_account_is_approved_from_the_command_line(tmp_path: Path, db: Database) -> None:
     db.create_app_user(EMAIL, hash_password(PASSWORD))
     waiting = make_client(tmp_path, db)
     sign_up(waiting, OTHER)
-    admin = make_client(tmp_path, db)
-    csrf = csrf_from(admin, "/login")
-    admin.post("/login", data={"email": EMAIL, "password": PASSWORD, "csrf_token": csrf})
-    page = admin.get("/users").get_data(as_text=True)
-    assert OTHER in page and "waiting for approval" in page and "Approve" in page
-    assert "badge" not in admin.get("/").get_data(as_text=True)  # no counts in the navigation
-    token = csrf_from(admin, "/users")
-    assert admin.post("/users/approve", data={"email": OTHER}).status_code == 400  # no CSRF token
-    assert admin.post("/users/approve", data={"email": OTHER, "csrf_token": token}).status_code == 302
+    admin = _signed_in(tmp_path, db, EMAIL)
+    home = admin.get("/").get_data(as_text=True)
+    assert 'href="/users"' not in home and "badge" not in home  # nothing about users in the navigation
+    token = csrf_from(admin, "/")
+    assert admin.get("/users").status_code == 404  # the page is gone
+    assert admin.post("/users/approve", data={"email": OTHER, "csrf_token": token}).status_code == 404
+    assert (db.get_app_user(OTHER) or {})["status"] == "pending"  # the web cannot approve anyone
+    approved = CliRunner().invoke(cli_app, ["auth", "approve", OTHER, "--db", str(db.path)])
+    assert approved.exit_code == 0
     login_csrf = csrf_from(waiting, "/login")
     ok = waiting.post("/login", data={"email": OTHER, "password": PASSWORD, "csrf_token": login_csrf})
     assert ok.status_code == 302 and OTHER in waiting.get("/").get_data(as_text=True)
@@ -152,20 +159,16 @@ def test_removing_a_user_signs_them_out_at_once(tmp_path: Path, db: Database) ->
     db.create_app_user(EMAIL, hash_password(PASSWORD))
     db.create_app_user(OTHER, hash_password(PASSWORD))
     db.approve_app_user(OTHER)
-    admin, guest = make_client(tmp_path, db), make_client(tmp_path, db)
-    for client, who in ((admin, EMAIL), (guest, OTHER)):
-        csrf = csrf_from(client, "/login")
-        client.post("/login", data={"email": who, "password": PASSWORD, "csrf_token": csrf})
+    guest = _signed_in(tmp_path, db, OTHER)
     assert guest.get("/").status_code == 200
-    token = csrf_from(admin, "/users")
-    assert admin.post("/users/remove", data={"email": OTHER, "csrf_token": token}).status_code == 302
+    removed = CliRunner().invoke(cli_app, ["auth", "remove", OTHER, "--db", str(db.path)])
+    assert removed.exit_code == 0
     assert guest.get("/").status_code == 302  # the session no longer works
-    assert admin.post("/users/remove", data={"email": EMAIL, "csrf_token": token}).status_code == 400  # not yourself
 
 
-def test_users_page_needs_sign_in(tmp_path: Path, db: Database) -> None:
+def test_there_is_no_users_page_for_visitors_either(tmp_path: Path, db: Database) -> None:
     client = make_client(tmp_path, db)
-    assert client.get("/users").status_code == 302
+    assert client.get("/users").status_code == 302  # sent to sign in, and nothing is revealed
     assert client.post("/users/approve", data={"email": OTHER}).status_code in (400, 401)
 
 
