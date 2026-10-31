@@ -1,34 +1,12 @@
-"""Read connector files and substitute ${ENV} references."""
+"""Read connector files from disk."""
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from ..secrets import MissingSecret
 from .schema import ConnectorConfig
-
-ENV_REF = re.compile(r"\$\{([A-Z][A-Z0-9_]*)\}")
-
-
-def expand_env(text: str, env: dict[str, str] | None = None) -> str:
-    import os
-
-    env = os.environ if env is None else env
-
-    def sub(m: re.Match) -> str:
-        value = env.get(m.group(1))
-        if not value:
-            raise MissingSecret(m.group(1))
-        return value
-
-    return ENV_REF.sub(sub, text) if isinstance(text, str) else text
-
-
-def env_refs(text: Any) -> list[str]:
-    return ENV_REF.findall(text) if isinstance(text, str) else []
 
 
 def config_files(directory: str | Path) -> list[Path]:
@@ -41,7 +19,7 @@ def read_yaml(path: str | Path) -> Any:
 
 
 def parse_config(path: str | Path) -> ConnectorConfig:
-    """Parse without env checks. Callers run the validator first."""
+    """Parse without validation messages. Callers run the validator first."""
     return ConnectorConfig.model_validate(read_yaml(path))
 
 

@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Callable, Iterator
+from collections.abc import Callable, Iterator
+from typing import Any
 
+from .classify import FailureCategory
+from .config.schema import Pagination
 from .http.client import Page
 from .http.retry import FetchError
 from .mapping import get_path
@@ -25,15 +28,17 @@ def parse_link_header(value: str | None, rel: str = "next") -> str | None:
     return None
 
 
-def extract_records(data: Any, records_path: str) -> list:
+def extract_records(data: Any, records_path: str) -> list[Any]:
     if records_path:
         found, records = get_path(data, records_path)
         if not found:
-            raise FetchError("bad_response", f"records_path '{records_path}' not found in response")
+            raise FetchError(FailureCategory.SCHEMA_CHANGED, "records path not found in response",
+                             field=records_path)
     else:
         records = data
     if not isinstance(records, list):
-        raise FetchError("bad_response", "expected a list of records in the response")
+        raise FetchError(FailureCategory.SCHEMA_CHANGED, "expected a list of records in the response",
+                         field=records_path or "response")
     return records
 
 
@@ -48,9 +53,9 @@ def iter_pages(
     fetch: Fetch,
     url: str,
     params: dict[str, Any],
-    pag,
+    pag: Pagination | None,
     records_path: str,
-) -> Iterator[list]:
+) -> Iterator[list[Any]]:
     """Yield one list of raw records per page until the stop condition."""
     if pag is None:
         yield extract_records(fetch(url, params).data, records_path)
@@ -69,9 +74,9 @@ def iter_pages(
         start = 0
         while True:
             p = dict(params)
-            p[pag.start_param] = start
+            p[pag.start_param or ""] = start  # the model guarantees these are set for offset paging
             if pag.limit is not None:
-                p[pag.limit_param] = pag.limit
+                p[pag.limit_param or ""] = pag.limit
             page = fetch(url, p)
             records = extract_records(page.data, records_path)
             yield records
@@ -84,7 +89,7 @@ def iter_pages(
         number = pag.start
         while True:
             p = dict(params)
-            p[pag.param] = number
+            p[pag.param or ""] = number
             records = extract_records(fetch(url, p).data, records_path)
             if not records:
                 return
@@ -96,8 +101,8 @@ def iter_pages(
         while True:
             page = fetch(url, p)
             yield extract_records(page.data, records_path)
-            token = get_path(page.data, pag.next_path)[1]
+            token = get_path(page.data, pag.next_path or "")[1]
             if not token:
                 return
             p = dict(params)
-            p[pag.param] = token
+            p[pag.param or ""] = token

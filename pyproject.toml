@@ -15,10 +15,13 @@ dependencies = [
   "typer>=0.12",
   "apscheduler>=3.10,<4",
   "flask>=3.0",
+  "cryptography>=42",
+  "keyring>=25",
+  "platformdirs>=4",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-httpserver>=1.0"]
+dev = ["pytest>=8", "pytest-httpserver>=1.0", "ruff>=0.5", "mypy>=1.10"]
 
 [project.scripts]
 hermes = "secintegrate.cli:app"
@@ -33,3 +36,34 @@ secintegrate = ["storage/schema.sql", "web/templates/*.html"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "SIM", "RUF", "PL"]
+ignore = [
+  "PLR0913",  # many arguments: dependencies are injected on purpose
+  "PLR0912",  # branches and statements: the runner and retry loops are long but linear
+  "PLR0915",
+  "PLR0917",  # same reason as PLR0913
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "PLR2004", "S105", "S106", "PLC0415"]  # asserts, magic numbers and fake keys are fine in tests
+"src/secintegrate/cli*.py" = ["PLC0415"]  # lazy imports keep `--help` fast
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src", "tests"]
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["apscheduler.*", "yaml", "keyring", "keyring.*", "pytest_httpserver", "pytest_httpserver.*"]
+ignore_missing_imports = true
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["typer.Argument", "typer.Option"]

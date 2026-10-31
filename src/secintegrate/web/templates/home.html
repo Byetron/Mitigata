@@ -12,7 +12,10 @@
   .stat .hint { color: var(--muted); font-size: .8rem; }
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; background: var(--idle); }
   .healthy .dot { background: var(--ok); } .degraded .dot { background: var(--warn); }
-  .failing .dot { background: var(--bad); }
+  .failing .dot { background: var(--bad); } .paused .dot { background: var(--warn); }
+  .spark { display: flex; gap: 2px; align-items: flex-end; height: 18px; margin-top: 12px; font-size: .75rem; color: var(--muted); }
+  .spark span { width: 6px; height: 14px; border-radius: 2px; background: var(--ok); }
+  .spark span.down { background: var(--bad); height: 18px; }
   .conn .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .conn .name { font-weight: 600; word-break: break-word; }
   .pill { font-size: .72rem; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
@@ -38,7 +41,7 @@
     <div class="card stat"><div class="label">Events</div><div class="value">{{ '{:,}'.format(data.totals.events) }}</div><div class="hint">advisories, CVEs, breaches</div></div>
     <div class="card stat"><div class="label">Devices</div><div class="value">{{ '{:,}'.format(data.totals.devices) }}</div><div class="hint">flagged hosts</div></div>
     <div class="card stat"><div class="label">Healthy connectors</div><div class="value">{{ counts.healthy }} <span class="sub">/ {{ conns|length }}</span></div>
-      <div class="hint">{{ counts.degraded }} degraded, {{ counts.failing }} failing, {{ counts.never_run }} not run</div></div>
+      <div class="hint">{{ counts.degraded }} degraded, {{ counts.failing }} failing, {{ counts.paused }} paused, {{ counts.never_run }} not run</div></div>
     <div class="card stat"><div class="label">Quarantined records</div><div class="value">{{ '{:,}'.format(data.totals.quarantined) }}</div><div class="hint">bad records set aside</div></div>
   </div>
 
@@ -54,7 +57,10 @@
         <dt>Quarantined in last run</dt><dd>{{ c.last_bad if c.last_bad is not none else '-' }}</dd>
         <dt>Failures in a row</dt><dd>{{ c.consecutive_failures or 0 }}</dd>
       </dl>
-      {% if c.last_error %}<div class="err">{{ c.last_error }}</div>{% endif %}
+      <div class="spark" title="Last {{ c.spark|length }} probe checks, oldest first">
+        {% for p in c.spark %}<span class="{{ 'up' if p.ok else 'down' }}" title="{{ p.checked_at }}{{ '' if p.ok else ' ' ~ (p.category or 'failed') }}"></span>{% else %}<em>no probe checks yet</em>{% endfor %}
+      </div>
+      {% if c.message %}<div class="err">{{ c.message }}</div>{% endif %}
     </div>
     {% else %}<div class="card empty">No connectors found in the config directory.</div>{% endfor %}
   </div>

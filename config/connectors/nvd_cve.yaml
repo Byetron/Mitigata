@@ -10,6 +10,13 @@ auth:
 rate_limit:
   max_requests: 45
   per_seconds: 30
+probe:
+  method: GET
+  path: /rest/json/cves/2.0
+  params:
+    resultsPerPage: 1
+  interval_minutes: 30
+  expect_status: 200
 endpoints:
   - name: cves
     method: GET

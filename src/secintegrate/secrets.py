@@ -5,6 +5,7 @@ import os
 import threading
 
 _lock = threading.Lock()
+MIN_SECRET_LENGTH = 4  # shorter values would redact ordinary words
 _registered: set[str] = set()
 
 
@@ -14,7 +15,7 @@ class MissingSecret(Exception):
 
 def register(value: str | None) -> None:
     """Remember a secret value so that redact() can scrub it from any text."""
-    if value and len(value) >= 4:
+    if value and len(value) >= MIN_SECRET_LENGTH:
         with _lock:
             _registered.add(value)
 

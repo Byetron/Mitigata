@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}New connector | Hermes{% endblock %}
 {% block heading %}New connector{% endblock %}
-{% block subtitle %}Fill in the form to generate a validated connector config. Secret values are never accepted, only env var names.{% endblock %}
+{% block subtitle %}Fill in the form, or start from a preset. Secret values are never accepted here, only the names of stored secrets.{% endblock %}
 
 {% block style %}
   form { display: grid; gap: 14px; max-width: 860px; }
@@ -11,33 +11,46 @@
   input, select { width: 100%; font: inherit; font-size: .9rem; color: var(--text); background: var(--bg);
                   border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
   input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-  .field.bad input, .field.bad select { border-color: var(--bad); }
-  .error { color: var(--bad); font-size: .78rem; margin-top: 4px; }
-  .box { background: var(--err-bg); border: 1px solid var(--err-line); border-radius: 12px; padding: 12px 18px; max-width: 860px; margin-bottom: 14px; }
+  .field.has-error input, .field.has-error select { border-color: var(--bad); }
+  .issue { font-size: .78rem; margin-top: 4px; }
+  .issue.error { color: var(--bad); }
+  .issue.warning { color: var(--warn); }
+  .box { background: var(--err-bg); border: 1px solid var(--err-line); border-radius: 12px; padding: 12px 18px;
+         max-width: 860px; margin-bottom: 14px; }
   .box ul { margin: 6px 0 0; padding-left: 20px; }
   .maprow { display: grid; grid-template-columns: 1fr 2fr 1.2fr 110px; gap: 8px; margin-top: 8px; }
   @media (max-width: 640px) { .maprow { grid-template-columns: 1fr 1fr; } }
   button { font: inherit; font-weight: 600; color: #fff; background: var(--accent); border: 0; border-radius: 8px;
            padding: 10px 22px; cursor: pointer; justify-self: start; }
   button:hover { filter: brightness(1.08); }
+  button.preset { color: var(--text); background: var(--card); border: 1px solid var(--line); padding: 6px 14px;
+                  font-weight: 500; font-size: .85rem; }
+  button.preset:hover { border-color: var(--accent); color: var(--accent); filter: none; }
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .ok { max-width: 860px; }
 {% endblock %}
 
+{% macro issues_for(name) %}
+  <div class="issues" data-for="{{ name }}">
+    {% for i in by_field.get(name, []) %}<div class="issue {{ i.severity }}">{{ i.message }}</div>{% endfor %}
+  </div>
+{% endmacro %}
+
 {% macro field(name, label, hint='') %}
-  <div class="field {{ 'bad' if errors.get(name) }}">
+  <div class="field {{ 'has-error' if by_field.get(name) }}">
     <label for="{{ name }}">{{ label }}{% if hint %}<span class="hint">{{ hint }}</span>{% endif %}</label>
-    <input id="{{ name }}" name="{{ name }}" value="{{ v[name] }}">
-    {% if errors.get(name) %}<div class="error">{{ errors[name] }}</div>{% endif %}
+    <input id="{{ name }}" name="{{ name }}" value="{{ v[name] }}" autocomplete="off">
+    {{ issues_for(name) }}
   </div>
 {% endmacro %}
 
 {% macro choice(name, label, options) %}
-  <div class="field {{ 'bad' if errors.get(name) }}">
+  <div class="field {{ 'has-error' if by_field.get(name) }}">
     <label for="{{ name }}">{{ label }}</label>
     <select id="{{ name }}" name="{{ name }}">
       {% for o in options %}<option value="{{ o }}" {{ 'selected' if v[name] == o }}>{{ o }}</option>{% endfor %}
     </select>
-    {% if errors.get(name) %}<div class="error">{{ errors[name] }}</div>{% endif %}
+    {{ issues_for(name) }}
   </div>
 {% endmacro %}
 
@@ -48,17 +61,28 @@
     <p>Saved to <code>{{ result.path }}</code>. It passed validation and is scheduled the next time
        <code>hermes serve</code> starts.</p>
     <pre>{{ result.yaml }}</pre>
+    {% for i in general %}<div class="issue {{ i.severity }}">{{ i.message }}</div>{% endfor %}
     <p><a href="/">Back to home</a></p>
   </div>
 {% else %}
-  {% if general %}<div class="box"><strong>Fix these problems</strong><ul>
-    {% for g in general %}<li>{{ g }}</li>{% endfor %}</ul></div>{% endif %}
+  {% if general %}<div class="box"><strong>Notes</strong><ul>
+    {% for g in general %}<li class="issue {{ g.severity }}">{{ g.message }}</li>{% endfor %}</ul></div>{% endif %}
 
-  <form method="post" action="/connectors/new">
+  <form id="connector-form" method="post" action="/connectors/new">
+    <div class="card">
+      <h3>Start from a preset</h3>
+      <div class="presets">
+        <button type="button" class="preset" data-preset="github">GitHub advisories</button>
+        <button type="button" class="preset" data-preset="nvd">NVD CVEs</button>
+        <button type="button" class="preset" data-preset="public">Public feed (no key)</button>
+        <span class="sub">Fills the form with working paging, auth and mapping. Edit it afterwards.</span>
+      </div>
+    </div>
+
     <div class="card">
       <h3>Connector</h3>
       <div class="fields">
-        {{ field('connector_id', 'Connector id', 'lowercase letters, digits, underscores') }}
+        {{ field('connector_id', 'Connector id', '2 to 41 lowercase letters, digits, underscores') }}
         {{ field('source', 'Source label') }}
         {{ field('base_url', 'Base URL', 'must start with https://') }}
         {{ field('schedule', 'Schedule', 'five-field cron, e.g. */15 * * * *') }}
@@ -69,8 +93,8 @@
       <h3>Authentication</h3>
       <div class="fields">
         {{ choice('auth_type', 'Auth type', ['bearer', 'basic', 'api_key_header', 'none']) }}
-        {{ field('secret_env', 'Secret env var name', 'e.g. GITHUB_TOKEN, not the value') }}
-        {{ field('username_env', 'Username env var name', 'basic auth only') }}
+        {{ field('secret_env', 'Secret name', 'e.g. GITHUB_TOKEN. Store the value with `secret set`') }}
+        {{ field('username_env', 'Username secret name', 'basic auth only') }}
         {{ field('header_name', 'Header name', 'api_key_header only') }}
       </div>
     </div>
@@ -99,14 +123,23 @@
     </div>
 
     <div class="card">
+      <h3>Monitoring</h3>
+      <div class="fields">
+        {{ field('probe_path', 'Probe path', 'one cheap request that checks the connection, e.g. /user') }}
+        {{ field('probe_interval', 'Probe every (minutes)', 'default 15') }}
+      </div>
+    </div>
+
+    <div class="card">
       <h3>Mapping</h3>
       <div class="fields">{{ choice('mapping_target', 'Common schema target', targets.keys()|list) }}</div>
       <p class="sub" style="margin:10px 0 0">
         user: {{ targets['user']|join(', ') }}<br>
         device: {{ targets['device']|join(', ') }}<br>
-        event: {{ targets['event']|join(', ') }}
+        event: {{ targets['event']|join(', ') }}<br>
+        A source starting with <code>=</code> is a fixed value, for example <code>=high</code>.
       </p>
-      {% if errors.get('mapping') %}<div class="error">{{ errors['mapping'] }}</div>{% endif %}
+      {{ issues_for('mapping') }}
       {% for r in v.rows %}
       <div class="maprow">
         <input name="map_target_{{ loop.index0 }}" placeholder="target field" value="{{ r.target }}">
@@ -125,5 +158,56 @@
 
     <button type="submit">Validate and create</button>
   </form>
+
+  <script>
+    const PRESETS = {{ presets|tojson }};
+    const form = document.getElementById('connector-form');
+
+    function show(container, issues) {
+      container.replaceChildren();
+      issues.forEach(function (i) {
+        const div = document.createElement('div');
+        div.className = 'issue ' + i.severity;
+        div.textContent = i.message;
+        container.appendChild(div);
+      });
+      const field = container.closest('.field');
+      if (field) field.classList.toggle('has-error', issues.some(function (i) { return i.severity === 'error'; }));
+    }
+
+    form.addEventListener('focusout', function (event) {
+      const el = event.target;
+      if (!el.name) return;
+      const body = new FormData(form);
+      body.set('field', el.name);
+      fetch('/connectors/validate-field', { method: 'POST', body: body })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          const key = el.name.indexOf('map_') === 0 || el.name === 'mapping_target' ? 'mapping' : el.name;
+          const container = form.querySelector('[data-for="' + key + '"]');
+          if (container) show(container, data.issues);
+        })
+        .catch(function () { /* the server check on submit still applies */ });
+    });
+
+    document.querySelectorAll('[data-preset]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        const preset = PRESETS[button.dataset.preset];
+        Object.keys(preset).forEach(function (key) {
+          if (key === 'rows') {
+            preset.rows.forEach(function (row, i) {
+              form.elements['map_target_' + i].value = row.target;
+              form.elements['map_source_' + i].value = row.source;
+              form.elements['map_transform_' + i].value = row.transform;
+              form.elements['map_required_' + i].value = row.required ? 'yes' : 'no';
+            });
+          } else if (form.elements[key]) {
+            form.elements[key].value = preset[key];
+          }
+        });
+        document.querySelectorAll('.issues').forEach(function (c) { c.replaceChildren(); });
+      });
+    });
+  </script>
 {% endif %}
 {% endblock %}

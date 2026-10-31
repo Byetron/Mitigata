@@ -12,6 +12,11 @@ headers:
 rate_limit:
   max_requests: 4000
   per_seconds: 3600
+probe:
+  method: GET
+  path: /user
+  interval_minutes: 15
+  expect_status: 200
 endpoints:
   - name: advisories
     method: GET

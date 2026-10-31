@@ -1,4 +1,4 @@
-"""Pydantic models for the connector YAML format (spec section 3)."""
+"""Pydantic models for the connector YAML format (spec section 3, brief section 3.2)."""
 from __future__ import annotations
 
 import difflib
@@ -11,15 +11,47 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from ..transforms import TRANSFORMS
 
 ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
-ID_RE = re.compile(r"^[a-z0-9_]+$")
+ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,40}$")
 HEADER_RE = re.compile(r"^[A-Za-z0-9!#$%&'*+.^_`|~-]+$")
+_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+_KEY_PREFIXES = ("ghp_", "gho_", "ghs_", "github_pat_", "sk-", "xoxb-", "xoxp-", "AKIA", "AIza")
+_MIN_KEY_LENGTH = 20
 
-TARGET_FIELDS = {
+AUTH_TYPES = ("bearer", "basic", "api_key_header", "none")
+PAGINATION_TYPES = ("link_header", "offset", "page_number", "cursor")
+TARGET_FIELDS: dict[str, list[str]] = {
     "user": ["id", "name", "email", "status", "last_login"],
     "device": ["id", "hostname", "ip", "os", "owner", "last_seen"],
     "event": ["id", "type", "severity", "timestamp", "description"],
 }
-TARGET_REQUIRED = {"user": ["id", "name"], "device": ["id"], "event": ["id", "type"]}
+TARGET_REQUIRED: dict[str, list[str]] = {
+    "user": ["id", "name"],
+    "device": ["id"],
+    "event": ["id", "timestamp", "severity"],
+}
+_REQUIRED_MESSAGE = {
+    "user": "A user record needs `id` and `name`.",
+    "device": "A device record needs `id`.",
+    "event": "An event record needs `id`, `timestamp`, and `severity`.",
+}
+
+
+def looks_like_real_key(value: str) -> bool:
+    """Heuristic from brief 3.2: a known key prefix, a UUID, or a long mixed-case string with digits."""
+    if value.startswith(_KEY_PREFIXES) or _UUID_RE.match(value):
+        return True
+    return (
+        len(value) > _MIN_KEY_LENGTH
+        and any(c.islower() for c in value)
+        and any(c.isupper() for c in value)
+        and any(c.isdigit() for c in value)
+    )
+
+
+def _one_of(label: str, options: tuple[str, ...], value: Any) -> Any:
+    if value not in options:
+        raise ValueError(f"Pick one of: {', '.join(options)}." if label else "")
+    return value
 
 
 class _Model(BaseModel):
@@ -32,22 +64,32 @@ class Auth(_Model):
     username_env: str | None = None
     header: str | None = None
 
+    @field_validator("type", mode="before")
+    @classmethod
+    def _type(cls, v: Any) -> Any:
+        return _one_of("auth", AUTH_TYPES, v)
+
     @field_validator("secret", "username_env")
     @classmethod
-    def _env_name(cls, v):
-        if v is not None and not ENV_NAME_RE.match(v):
-            raise ValueError("looks like a real value. Use an env var name such as GITHUB_TOKEN")
+    def _env_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if looks_like_real_key(v):
+            raise ValueError("This looks like a real key. Store it with `secintegrate secret set`, "
+                             "then enter its name here.")
+        if not ENV_NAME_RE.match(v):
+            raise ValueError("Enter the environment variable name, not the key. Example: GITHUB_TOKEN.")
         return v
 
     @field_validator("header")
     @classmethod
-    def _header(cls, v):
+    def _header(cls, v: str | None) -> str | None:
         if v is not None and not HEADER_RE.match(v):
-            raise ValueError("is not a valid HTTP header name")
+            raise ValueError("Header name is not valid. Example: X-Api-Key.")
         return v
 
     @model_validator(mode="after")
-    def _required(self):
+    def _required(self) -> Auth:
         need = {
             "none": [],
             "bearer": ["secret"],
@@ -56,7 +98,7 @@ class Auth(_Model):
         }[self.type]
         missing = [n for n in need if not getattr(self, n)]
         if missing:
-            raise ValueError(f"auth type={self.type} requires {' and '.join(missing)}")
+            raise ValueError(f"Auth type `{self.type}` needs {' and '.join(missing)}.")
         return self
 
 
@@ -71,6 +113,23 @@ class Retry(_Model):
     retry_after_default: float = Field(default=30.0, ge=0)
 
 
+class Probe(_Model):
+    """A canary request that checks a connection without pulling data (brief 2.2)."""
+
+    method: Literal["GET", "POST"] = "GET"
+    path: str
+    params: dict[str, Any] = Field(default_factory=dict)
+    interval_minutes: int = Field(default=15, ge=1, le=1440)
+    expect_status: int = Field(default=200, ge=100, le=599)
+
+    @field_validator("path")
+    @classmethod
+    def _path(cls, v: str) -> str:
+        if not v.startswith("/"):
+            raise ValueError("Path must start with /.")
+        return v
+
+
 class Pagination(_Model):
     type: Literal["link_header", "offset", "page_number", "cursor"]
     rel: str = "next"
@@ -83,15 +142,21 @@ class Pagination(_Model):
     stop_when_empty: bool = True
     next_path: str | None = None
 
+    @field_validator("type", mode="before")
+    @classmethod
+    def _type(cls, v: Any) -> Any:
+        return _one_of("pagination", PAGINATION_TYPES, v)
+
     @model_validator(mode="after")
-    def _by_type(self):
-        t = self.type
-        if t == "offset" and not (self.start_param and self.limit_param):
-            raise ValueError("pagination.type=offset requires start_param and limit_param")
-        if t == "page_number" and not self.param:
-            raise ValueError("pagination.type=page_number requires param")
-        if t == "cursor" and not (self.param and self.next_path):
-            raise ValueError("pagination.type=cursor requires param and next_path")
+    def _by_type(self) -> Pagination:
+        if self.type == "offset" and not (self.start_param and self.limit_param):
+            raise ValueError("Offset paging needs a start parameter and a limit parameter.")
+        if self.type == "link_header" and self.start_param:
+            raise ValueError("Link-header paging follows URLs from the server. Remove `start_param`.")
+        if self.type == "page_number" and not self.param:
+            raise ValueError("Page-number paging needs a page parameter.")
+        if self.type == "cursor" and not (self.param and self.next_path):
+            raise ValueError("Cursor paging needs a parameter name and a next-token path.")
         return self
 
 
@@ -107,14 +172,14 @@ class Incremental(_Model):
     lookback_minutes: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
-    def _modes(self):
+    def _modes(self) -> Incremental:
         windowed = bool(self.start_param or self.end_param)
         if self.param and windowed:
-            raise ValueError("incremental.param and start_param/end_param are mutually exclusive")
+            raise ValueError("Choose one incremental method.")
         if not self.param and not (self.start_param and self.end_param):
-            raise ValueError("incremental requires either param, or both start_param and end_param")
+            raise ValueError("Choose one incremental method: `param`, or both `start_param` and `end_param`.")
         if self.param and "{value}" not in self.format:
-            raise ValueError("incremental.format must contain {value}")
+            raise ValueError("Incremental `format` must contain {value}.")
         return self
 
 
@@ -129,11 +194,11 @@ class FieldRule(_Model):
 
     @field_validator("transform")
     @classmethod
-    def _known(cls, v):
+    def _known(cls, v: str | None) -> str | None:
         if v is not None and v not in TRANSFORMS:
             hint = difflib.get_close_matches(v, TRANSFORMS, n=1)
-            more = f" Did you mean {hint[0]}?" if hint else ""
-            raise ValueError(f'"{v}" is not a known transform.{more}')
+            more = f" Did you mean `{hint[0]}`?" if hint else ""
+            raise ValueError(f"Unknown transform `{v}`.{more}")
         return v
 
 
@@ -141,23 +206,23 @@ class Mapping(_Model):
     target: str
     fields: dict[str, FieldRule]
 
-    @field_validator("target")
+    @field_validator("target", mode="before")
     @classmethod
-    def _target(cls, v):
+    def _target(cls, v: Any) -> Any:
         if v not in TARGET_FIELDS:
-            raise ValueError("must be one of user, device, event")
+            raise ValueError("Target must be user, device, or event.")
         return v
 
     @model_validator(mode="after")
-    def _fields(self):
+    def _fields(self) -> Mapping:
         allowed = TARGET_FIELDS[self.target]
-        for name in self.fields:
+        for name, rule in self.fields.items():
             if name not in allowed:
-                raise ValueError(f"field '{name}' is not valid for target {self.target}; allowed: {', '.join(allowed)}")
-        need = TARGET_REQUIRED[self.target]
-        missing = [n for n in need if n not in self.fields]
-        if missing:
-            raise ValueError(f"mapping.target={self.target} requires {' and '.join(need)} (missing {', '.join(missing)})")
+                raise ValueError(f"`{name}` is not a field of target {self.target}. Allowed: {', '.join(allowed)}.")
+            if rule.required and "default" in rule.model_fields_set:
+                raise ValueError(f"Field `{name}` is marked required but also has a default. Remove one.")
+        if any(n not in self.fields for n in TARGET_REQUIRED[self.target]):
+            raise ValueError(_REQUIRED_MESSAGE[self.target])
         return self
 
 
@@ -174,16 +239,16 @@ class Endpoint(_Model):
 
     @field_validator("path")
     @classmethod
-    def _path(cls, v):
+    def _path(cls, v: str) -> str:
         if not v.startswith("/"):
-            raise ValueError("must start with /")
+            raise ValueError("Path must start with /.")
         return v
 
     @model_validator(mode="after")
-    def _placeholders(self):
+    def _placeholders(self) -> Endpoint:
         for name in re.findall(r"\{(\w+)\}", self.path):
             if name not in self.vars:
-                raise ValueError(f"path placeholder {{{name}}} has no value in vars")
+                raise ValueError(f"Path placeholder {{{name}}} has no value in `vars`.")
         return self
 
 
@@ -197,39 +262,39 @@ class ConnectorConfig(_Model):
     headers: dict[str, str] = Field(default_factory=dict)
     rate_limit: RateLimit | None = None
     retry: Retry | None = None
+    probe: Probe | None = None
     endpoints: list[Endpoint] = Field(min_length=1)
 
     @field_validator("connector")
     @classmethod
-    def _id(cls, v):
+    def _id(cls, v: str) -> str:
         if not ID_RE.match(v):
-            raise ValueError("must contain only lowercase letters, digits and underscores")
+            raise ValueError("Use 2 to 41 lowercase letters, digits, or underscores, starting with a letter.")
         return v
 
     @field_validator("schedule")
     @classmethod
-    def _cron(cls, v):
-        parts = v.split()
-        if len(parts) != 5:
-            raise ValueError(f'"{v}" has {len(parts)} fields, expected 5')
+    def _cron(cls, v: str) -> str:
+        if len(v.split()) != 5:  # noqa: PLR2004
+            raise ValueError("Schedule needs 5 fields, for example `*/15 * * * *`.")
         try:
             CronTrigger.from_crontab(v)
         except ValueError as exc:
-            raise ValueError(f'"{v}" is not a valid cron expression: {exc}') from None
+            raise ValueError(f"Schedule is not a valid cron expression: {exc}") from None
         return v
 
     @field_validator("base_url")
     @classmethod
-    def _base(cls, v):
-        ok = v.startswith(("https://", "${", "http://localhost", "http://127.0.0.1"))
-        if not ok:
-            raise ValueError("must start with https:// or be a ${ENV_VAR}")
+    def _base(cls, v: str) -> str:
+        # Loopback http is allowed so tests can use a local mock server.
+        if not v.startswith(("https://", "http://localhost", "http://127.0.0.1")):
+            raise ValueError("Base URL must start with https://.")
         return v
 
     @model_validator(mode="after")
-    def _unique_endpoints(self):
+    def _unique_endpoints(self) -> ConnectorConfig:
         names = [e.name for e in self.endpoints]
         dupes = sorted({n for n in names if names.count(n) > 1})
         if dupes:
-            raise ValueError(f"endpoint names must be unique, duplicated: {', '.join(dupes)}")
+            raise ValueError(f"Endpoint names must be unique. Duplicated: {', '.join(dupes)}.")
         return self

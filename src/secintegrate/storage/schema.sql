@@ -39,7 +39,10 @@ CREATE TABLE IF NOT EXISTS connections (
   last_run_finished_at TEXT,
   last_records_pulled  INTEGER DEFAULT 0,
   last_error           TEXT,
-  consecutive_failures INTEGER DEFAULT 0
+  consecutive_failures INTEGER DEFAULT 0,
+  paused               INTEGER DEFAULT 0,
+  last_category        TEXT,
+  message              TEXT
 );
 
 CREATE TABLE IF NOT EXISTS runs (
@@ -71,3 +74,15 @@ CREATE TABLE IF NOT EXISTS sync_state (
   updated_at  TEXT NOT NULL,
   PRIMARY KEY (connector, endpoint)
 );
+
+CREATE TABLE IF NOT EXISTS probes (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  connector   TEXT NOT NULL,
+  checked_at  TEXT NOT NULL,
+  ok          INTEGER NOT NULL,
+  category    TEXT,
+  http_status INTEGER,
+  latency_ms  INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_probes_connector ON probes (connector, id);
