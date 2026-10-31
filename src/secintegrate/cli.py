@@ -12,7 +12,7 @@ from .config.validator import validate_dir, validate_paths
 from .logging_utils import setup_logging
 from .storage.db import Database
 
-app = typer.Typer(help="Config-driven security integration platform.", no_args_is_help=True)
+app = typer.Typer(help="Hermes: config-driven security integration platform.", no_args_is_help=True)
 db_app = typer.Typer(help="Database maintenance.", no_args_is_help=True)
 app.add_typer(db_app, name="db")
 
@@ -84,7 +84,7 @@ def serve(port: int = typer.Option(8000, "--port"), config_dir: Path = CONFIG_DI
     configs = []
     for f in config_files(config_dir):
         if f in bad_files:
-            log.warning("skipping %s: invalid config (run 'secintegrate validate')", f)
+            log.warning("skipping %s: invalid config (run 'hermes validate')", f)
             continue
         cfg = parse_config(f)
         db.ensure_connection(cfg.connector)

@@ -11,7 +11,7 @@ def test_home_shows_summaries_but_not_emails(tmp_path, db):
     r = client.get("/")
     html = r.get_data(as_text=True)
     assert r.status_code == 200
-    assert "CVE-1" in html and "Security Integration Overview" in html
+    assert "CVE-1" in html and "Hermes" in html
     assert "ann@example.com" not in html
     assert "<b>bad</b>" not in html          # descriptions are escaped
     db.upsert("event", "cisa", [{"id": "CVE-2", "type": "kev", "severity": "high",

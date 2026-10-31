@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "secintegrate"
 version = "0.1.0"
-description = "Config-driven security integration platform"
+description = "Hermes: config-driven security integration platform"
 requires-python = ">=3.11"
 dependencies = [
   "httpx>=0.27",
@@ -21,6 +21,7 @@ dependencies = [
 dev = ["pytest>=8", "pytest-httpserver>=1.0"]
 
 [project.scripts]
+hermes = "secintegrate.cli:app"
 secintegrate = "secintegrate.cli:app"
 
 [tool.setuptools.packages.find]

@@ -1,6 +1,6 @@
-# secintegrate
+# Hermes
 
-Config-driven security integration platform. Each source is one YAML file in `config/connectors/`;
+Hermes is a config-driven security integration platform. Each source is one YAML file in `config/connectors/`;
 no code changes are needed to add a source. See `PLATFORM_SPEC.md` for the full design.
 
 ## Connectors
@@ -26,13 +26,13 @@ copy .env.example .env      # then fill in the values (the existing .env already
 ## Use
 
 ```powershell
-secintegrate validate                       # B2: path-specific errors, exit 1 on any problem
-secintegrate run github_advisories --once   # one run now; prints pages, requests, records
-secintegrate run nvd_cve --once
-secintegrate run cisa_kev --once            # config-only 4th source (no auth)
-secintegrate status                         # health table in the terminal
-secintegrate serve                          # scheduler + web UI on http://localhost:8000
-secintegrate db reset --yes
+hermes validate                       # B2: path-specific errors, exit 1 on any problem
+hermes run github_advisories --once   # one run now; prints pages, requests, records
+hermes run nvd_cve --once
+hermes run cisa_kev --once            # config-only 4th source (no auth)
+hermes status                         # health table in the terminal
+hermes serve                          # scheduler + web UI on http://localhost:8000
+hermes db reset --yes
 pytest
 ```
 

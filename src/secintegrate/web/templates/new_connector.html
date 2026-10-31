@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}New connector{% endblock %}
+{% block title %}New connector | Hermes{% endblock %}
 {% block heading %}New connector{% endblock %}
 {% block subtitle %}Fill in the form to generate a validated connector config. Secret values are never accepted, only env var names.{% endblock %}
 
@@ -46,7 +46,7 @@
   <div class="card ok">
     <h3>Connector created</h3>
     <p>Saved to <code>{{ result.path }}</code>. It passed validation and is scheduled the next time
-       <code>secintegrate serve</code> starts.</p>
+       <code>hermes serve</code> starts.</p>
     <pre>{{ result.yaml }}</pre>
     <p><a href="/">Back to home</a></p>
   </div>
