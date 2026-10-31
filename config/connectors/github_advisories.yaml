@@ -1,0 +1,37 @@
+connector: github_advisories
+source: github
+enabled: true
+schedule: "*/15 * * * *"
+base_url: https://api.github.com
+auth:
+  type: bearer
+  secret: GITHUB_TOKEN
+headers:
+  Accept: application/vnd.github+json
+  X-GitHub-Api-Version: "2022-11-28"
+rate_limit:
+  max_requests: 4000
+  per_seconds: 3600
+endpoints:
+  - name: advisories
+    method: GET
+    path: /advisories
+    params:
+      per_page: 100
+    records_path: ""
+    pagination:
+      type: link_header
+      rel: next
+    incremental:
+      cursor_field: updated_at
+      param: updated
+      format: ">={value}"
+      initial: "2026-10-30"
+    mapping:
+      target: event
+      fields:
+        id:          { from: ghsa_id, required: true }
+        type:        { const: advisory }
+        severity:    { from: severity, transform: lower, default: unknown }
+        timestamp:   { from: published_at, transform: iso8601, required: true }
+        description: { from: summary, default: "" }

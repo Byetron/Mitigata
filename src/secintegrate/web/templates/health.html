@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="30">
+<title>Connector health</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 2rem; color: #1b1f24; background: #fafafa; }
+  h1 { font-size: 1.4rem; }
+  nav a { margin-right: 1rem; }
+  table { border-collapse: collapse; width: 100%; background: #fff; }
+  th, td { text-align: left; padding: .5rem .75rem; border-bottom: 1px solid #e3e6ea; vertical-align: top; }
+  th { background: #f0f2f5; font-weight: 600; }
+  .badge { display: inline-block; padding: .1rem .6rem; border-radius: 999px; color: #fff; font-size: .85rem; }
+  .healthy { background: #1a7f37; } .degraded { background: #b7791f; }
+  .failing { background: #c62828; } .never_run { background: #6b7280; }
+  .err { color: #8a1c1c; font-family: ui-monospace, monospace; font-size: .85rem; word-break: break-word; }
+  .note { color: #555; font-size: .85rem; margin-top: 1rem; }
+</style>
+</head>
+<body>
+<h1>Connector health</h1>
+<nav><a href="/health">Health</a><a href="/connectors/new">New connector</a></nav>
+<table>
+  <thead>
+    <tr><th>Connector</th><th>Status</th><th>Last run</th><th>Records pulled</th>
+        <th>Quarantined in last run</th><th>Last error</th><th>Consecutive failures</th></tr>
+  </thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td>{{ r.connector }}</td>
+      <td><span class="badge {{ r.status }}">{{ r.status.replace('_', ' ') }}</span></td>
+      <td>{{ r.last_run_finished_at or '-' }}</td>
+      <td>{{ r.last_records_pulled or 0 }}</td>
+      <td>{{ r.last_bad if r.last_bad is not none else '-' }}</td>
+      <td class="err">{{ r.last_error }}</td>
+      <td>{{ r.consecutive_failures or 0 }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7">No connectors found in the config directory.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="note">Refreshes every 30 seconds. GitHub org members never include email; it is stored as null.</p>
+</body>
+</html>

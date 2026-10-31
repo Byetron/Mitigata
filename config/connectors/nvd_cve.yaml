@@ -1,0 +1,40 @@
+connector: nvd_cve
+source: nvd
+enabled: true
+schedule: "0 */2 * * *"
+base_url: https://services.nvd.nist.gov
+auth:
+  type: api_key_header
+  header: apiKey
+  secret: NVD_API_KEY
+rate_limit:
+  max_requests: 45
+  per_seconds: 30
+endpoints:
+  - name: cves
+    method: GET
+    path: /rest/json/cves/2.0
+    params:
+      resultsPerPage: 2000
+    records_path: vulnerabilities
+    pagination:
+      type: offset
+      start_param: startIndex
+      limit_param: resultsPerPage
+      limit: 2000
+      total_path: totalResults
+    incremental:
+      cursor_field: cve.lastModified
+      start_param: lastModStartDate
+      end_param: lastModEndDate
+      window_days: 120
+      initial: "2026-10-30T00:00:00.000"
+      cursor_format: "%Y-%m-%dT%H:%M:%S.000"
+    mapping:
+      target: event
+      fields:
+        id:          { from: cve.id, required: true }
+        type:        { const: cve }
+        severity:    { from: "cve.metrics.cvssMetricV31[0].cvssData.baseSeverity", transform: lower, default: unknown }
+        timestamp:   { from: cve.published, transform: iso8601, required: true }
+        description: { from: "cve.descriptions[0].value", default: "" }

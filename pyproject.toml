@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secintegrate"
+version = "0.1.0"
+description = "Config-driven security integration platform"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.27",
+  "pydantic>=2.6",
+  "pyyaml>=6.0",
+  "python-dotenv>=1.0",
+  "typer>=0.12",
+  "apscheduler>=3.10,<4",
+  "flask>=3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-httpserver>=1.0"]
+
+[project.scripts]
+secintegrate = "secintegrate.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+secintegrate = ["storage/schema.sql", "web/templates/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

@@ -1,0 +1,20 @@
+connector: cisa_kev
+source: cisa
+enabled: true
+schedule: "0 */6 * * *"
+base_url: https://www.cisa.gov
+auth:
+  type: none
+endpoints:
+  - name: kev
+    method: GET
+    path: /sites/default/files/feeds/known_exploited_vulnerabilities.json
+    records_path: vulnerabilities
+    mapping:
+      target: event
+      fields:
+        id:          { from: cveID, required: true }
+        type:        { const: kev }
+        severity:    { const: high }
+        timestamp:   { from: dateAdded, transform: iso8601, required: true }
+        description: { from: shortDescription, default: "" }

@@ -1,0 +1,31 @@
+connector: jira_users
+source: jira
+enabled: true
+schedule: "30 * * * *"
+base_url: ${JIRA_BASE_URL}
+auth:
+  type: basic
+  username_env: JIRA_EMAIL
+  secret: JIRA_API_TOKEN
+headers:
+  Accept: application/json
+endpoints:
+  - name: users
+    method: GET
+    path: /rest/api/3/users/search
+    params:
+      maxResults: 50
+    records_path: ""
+    pagination:
+      type: offset
+      start_param: startAt
+      limit_param: maxResults
+      limit: 50
+    mapping:
+      target: user
+      fields:
+        id:         { from: accountId, required: true }
+        name:       { from: displayName, default: "" }
+        email:      { from: emailAddress, default: null }
+        status:     { from: active, transform: active_to_status, default: disabled }
+        last_login: { const: null }

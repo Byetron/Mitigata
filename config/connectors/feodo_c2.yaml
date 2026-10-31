@@ -1,0 +1,21 @@
+connector: feodo_c2
+source: feodotracker
+enabled: true
+schedule: "30 */4 * * *"
+base_url: https://feodotracker.abuse.ch
+auth:
+  type: none
+endpoints:
+  - name: blocklist
+    method: GET
+    path: /downloads/ipblocklist.json
+    records_path: ""
+    mapping:
+      target: device
+      fields:
+        id:        { from: ip_address, required: true }
+        hostname:  { from: hostname, default: null }
+        ip:        { from: ip_address, required: true }
+        os:        { from: malware, default: unknown }   # malware family, stored in the os column
+        owner:     { from: as_name, default: null }
+        last_seen: { from: last_online, transform: iso8601, default: null }
