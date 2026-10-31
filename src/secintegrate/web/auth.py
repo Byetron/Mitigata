@@ -22,13 +22,15 @@ from .options import WebOptions
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MIN_PASSWORD_LENGTH = 10
 SCRYPT_N, SCRYPT_R, SCRYPT_P = 2**14, 8, 1
-PUBLIC_ENDPOINTS = {"login", "login_post", "signup", "signup_post", "google_start", "google_callback"}
+PUBLIC_ENDPOINTS = {"login", "login_post", "signup", "signup_post", "google_start", "google_start_get",
+                    "google_callback"}
 SESSION_HOURS = 8
 GOOGLE_ERRORS = {
     "denied": "Google sign-in was cancelled.",
     "state": "The sign-in session expired. Please try again.",
     "failed": "Google sign-in failed. Please try again.",
     "unverified": "That Google account's email address is not verified.",
+    "captcha": "That answer is not right. Try the new question.",
 }
 CAPTCHA_MAX_AGE = 600  # seconds a question stays valid
 
@@ -154,9 +156,38 @@ def register_auth(app: Flask, db: Database, options: WebOptions) -> None:
         csrf_token()
         return redirect(safe_next(request.args.get("next") or request.form.get("next")))
 
+    def captcha_mac(nonce: str, answer: int) -> str:
+        return hmac.new(str(app.secret_key).encode(), f"{nonce}:{answer}".encode(), "sha256").hexdigest()
+
+    def new_captcha() -> str:
+        """A small arithmetic question. The answer is never stored in the clear: only a keyed hash of it."""
+        a, b = secrets.randbelow(8) + 2, secrets.randbelow(8) + 2
+        plus = secrets.randbelow(2) == 0
+        if not plus and b > a:
+            a, b = b, a  # keep the answer positive
+        nonce = secrets.token_urlsafe(8)
+        session["captcha"] = {"nonce": nonce, "mac": captcha_mac(nonce, a + b if plus else a - b),
+                              "at": time.time()}
+        return f"What is {a} {'plus' if plus else 'minus'} {b}?"
+
+    def captcha_ok(given: str) -> bool:
+        """Single use: the question is thrown away whether or not the answer was right."""
+        pending = session.pop("captcha", None)
+        text = given.strip()
+        if not pending or time.time() - float(pending.get("at", 0)) > CAPTCHA_MAX_AGE:
+            return False
+        if not text.isdigit() or len(text) > 3:  # noqa: PLR2004
+            return False
+        return hmac.compare_digest(str(pending.get("mac", "")), captcha_mac(str(pending.get("nonce", "")), int(text)))
+
+    def human() -> bool:
+        """The captcha was answered correctly and the hidden trap field was left empty."""
+        return not request.form.get("website") and captcha_ok(request.form.get("captcha", ""))
+
     def login_page(error: str | None = None, status: int = 200) -> tuple[str, int]:
         return render_template("login.html", error=error, google_enabled=options.google() is not None,
-                               next=safe_next(request.args.get("next")), page="login"), status
+                               next=safe_next(request.args.get("next")), page="login",
+                               question=new_captcha()), status
 
     @app.get("/login")
     def login() -> tuple[str, int] | WerkzeugResponse:
@@ -171,6 +202,9 @@ def register_auth(app: Flask, db: Database, options: WebOptions) -> None:
         keys = (f"user:{email}", f"ip:{request.remote_addr}")
         if throttle.blocked(*keys):
             return login_page("Too many failed attempts. Wait 10 minutes and try again.", 429)
+        if not human():  # checked first, so a program gets no hint about whether the password was right
+            throttle.fail(f"ip:{request.remote_addr}")
+            return login_page(GOOGLE_ERRORS["captcha"], 400)
         user = db.get_app_user(email) if EMAIL_RE.match(email) else None
         stored = (user or {}).get("password_hash")
         good = verify_password(password, stored or _DUMMY_HASH) and bool(stored)
@@ -189,10 +223,18 @@ def register_auth(app: Flask, db: Database, options: WebOptions) -> None:
         return (options.public_url or request.url_root).rstrip("/") + "/auth/callback"
 
     @app.get("/auth/google")
+    def google_start_get() -> WerkzeugResponse:
+        return redirect("/login")  # the flow cannot be started by a link: it needs the captcha answer
+
+    @app.post("/auth/google")
     def google_start() -> WerkzeugResponse:
         creds = options.google()
         if creds is None:
             return redirect("/login")
+        if not human():
+            throttle.fail(f"ip:{request.remote_addr}")
+            back = "/signup" if request.form.get("from") == "signup" else "/login"
+            return redirect(f"{back}?error=captcha")
         verifier, challenge = google.new_pkce()
         state = secrets.token_urlsafe(24)
         session["oauth"] = {"state": state, "verifier": verifier}
@@ -221,30 +263,6 @@ def register_auth(app: Flask, db: Database, options: WebOptions) -> None:
         return sign_in(email)
 
     # --- creating an account -------------------------------------------------------------------
-    def captcha_mac(nonce: str, answer: int) -> str:
-        return hmac.new(str(app.secret_key).encode(), f"{nonce}:{answer}".encode(), "sha256").hexdigest()
-
-    def new_captcha() -> str:
-        """A small arithmetic question. The answer is never stored in the clear: only a keyed hash of it."""
-        a, b = secrets.randbelow(8) + 2, secrets.randbelow(8) + 2
-        plus = secrets.randbelow(2) == 0
-        if not plus and b > a:
-            a, b = b, a  # keep the answer positive
-        nonce = secrets.token_urlsafe(8)
-        session["captcha"] = {"nonce": nonce, "mac": captcha_mac(nonce, a + b if plus else a - b),
-                              "at": time.time()}
-        return f"What is {a} {'plus' if plus else 'minus'} {b}?"
-
-    def captcha_ok(given: str) -> bool:
-        """Single use: the question is thrown away whether or not the answer was right."""
-        pending = session.pop("captcha", None)
-        text = given.strip()
-        if not pending or time.time() - float(pending.get("at", 0)) > CAPTCHA_MAX_AGE:
-            return False
-        if not text.isdigit() or len(text) > 3:  # noqa: PLR2004
-            return False
-        return hmac.compare_digest(str(pending.get("mac", "")), captcha_mac(str(pending.get("nonce", "")), int(text)))
-
     def signup_page(error: str | None = None, status: int = 200, email: str = "") -> tuple[str, int]:
         return render_template("signup.html", error=error, email=email, page="login",
                                google_enabled=options.google() is not None, min_length=MIN_PASSWORD_LENGTH,
@@ -254,7 +272,7 @@ def register_auth(app: Flask, db: Database, options: WebOptions) -> None:
     def signup() -> tuple[str, int] | WerkzeugResponse:
         if session.get("user"):
             return redirect("/")
-        return signup_page()
+        return signup_page(GOOGLE_ERRORS.get(request.args.get("error", "")))
 
     @app.post("/signup")
     def signup_post() -> tuple[str, int] | WerkzeugResponse:  # noqa: PLR0911 - one page per distinct outcome

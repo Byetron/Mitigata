@@ -6,6 +6,7 @@
 {% block style %}
   .login { max-width: 400px; margin: 24px auto; display: grid; gap: 16px; }
   .login label { display: block; font-size: .82rem; font-weight: 600; margin-bottom: 4px; }
+  .login .hint { color: var(--muted); font-size: .75rem; font-weight: 400; }
   input { width: 100%; font: inherit; font-size: .95rem; color: var(--text); background: var(--bg);
           border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
   input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
@@ -16,8 +17,10 @@
   .btn.google:hover { border-color: var(--accent); filter: none; }
   .error { color: var(--bad); background: var(--err-bg); border: 1px solid var(--err-line); border-radius: 8px;
            padding: 8px 12px; font-size: .88rem; }
-  .or { text-align: center; color: var(--muted); font-size: .8rem; }
+  .or { text-align: center; color: var(--muted); font-size: .8rem; margin: 14px 0; }
   .field { margin-bottom: 12px; }
+  .check { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; }
+  .trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
   code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
 {% endblock %}
 
@@ -25,14 +28,19 @@
 <div class="login">
   {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
   <div class="card">
-    {% if google_enabled %}
-      <a class="btn google" href="/auth/google">Sign in with Google</a>
-      <div class="or" style="margin:14px 0">or use a password</div>
-    {% endif %}
-    <form method="post" action="/login?next={{ next|urlencode }}">
+    <form id="login-form" method="post" action="/login?next={{ next|urlencode }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="check field">
+        <label for="captcha">{{ question }} <span class="hint">Answer this first. It is needed to sign in, with or without Google.</span></label>
+        <input id="captcha" name="captcha" inputmode="numeric" autocomplete="off" maxlength="3" required autofocus>
+      </div>
+      <div class="trap" aria-hidden="true"><label>Leave this empty <input name="website" tabindex="-1" autocomplete="off"></label></div>
+      {% if google_enabled %}
+        <button class="btn google" type="submit" formaction="/auth/google" formnovalidate data-google>Sign in with Google</button>
+        <div class="or">or sign in with a password</div>
+      {% endif %}
       <div class="field"><label for="email">Email</label>
-        <input id="email" name="email" type="email" autocomplete="username" required autofocus></div>
+        <input id="email" name="email" type="email" autocomplete="username" required></div>
       <div class="field"><label for="password">Password</label>
         <input id="password" name="password" type="password" autocomplete="current-password" required></div>
       <button class="btn" type="submit">Sign in</button>
@@ -47,4 +55,13 @@
   {% endif %}
   <div class="sub" style="text-align:center">No account yet? <a href="/signup">Create one</a>. It takes a minute.</div>
 </div>
+<script>
+  // The Google button skips the email and password checks, but never the question.
+  document.querySelectorAll('[data-google]').forEach(function (button) {
+    button.addEventListener('click', function (event) {
+      const answer = document.getElementById('captcha');
+      if (!answer.value.trim()) { event.preventDefault(); answer.focus(); answer.reportValidity(); }
+    });
+  });
+</script>
 {% endblock %}

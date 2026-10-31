@@ -8,7 +8,7 @@ import pytest
 from flask.testing import FlaskClient
 from typer.testing import CliRunner
 
-from conftest import RecordingNotifier, make_cfg
+from conftest import RecordingNotifier, attempt, csrf_in, make_cfg
 from secintegrate.bootstrap import App
 from secintegrate.cli import app as cli_app
 from secintegrate.config.validator import has_errors, validate_text
@@ -24,7 +24,6 @@ from secintegrate.workspaces import WorkspaceManager, user_slug
 ANN = "ann@example.com"  # the first account, so she keeps the connectors that came with Hermes
 BOB = "bob@example.com"
 PASSWORD = "correct horse battery"
-CSRF = re.compile(r'name="csrf_token" value="([^"]+)"')
 
 
 def connector_yaml(name: str, source: str = "demo", base_url: str = "https://example.com",
@@ -57,13 +56,8 @@ def web(manager: WorkspaceManager, db: Database, hooks: ConnectorHooks | None = 
 
 
 def sign_in(client: FlaskClient, email: str) -> str:
-    page = client.get("/login").get_data(as_text=True)
-    match = CSRF.search(page)
-    assert match is not None
-    client.post("/login", data={"email": email, "password": PASSWORD, "csrf_token": match.group(1)})
-    home = CSRF.search(client.get("/").get_data(as_text=True))
-    assert home is not None
-    return home.group(1)
+    attempt(client, email, PASSWORD)
+    return csrf_in(client.get("/").get_data(as_text=True))
 
 
 # --- who owns what ----------------------------------------------------------------------------------------------

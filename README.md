@@ -53,9 +53,15 @@ pytest ; ruff check src tests ; mypy
 ## Accounts and sign-in
 
 Anyone who can reach the dashboard can create an account on the sign-in page: **Create account**, or **Continue with
-Google**. There is no approval step. Password sign-ups answer a small maths question (and a hidden trap field catches
-simple programs); that stops casual bots, not a determined attacker, so keep Hermes on `127.0.0.1`, where only people on
-this computer can reach it.
+Google**. There is no approval step.
+
+**A small maths question guards every way in.** The sign-in and sign-up pages both show a question such as "What is 7
+plus 5?" at the top, and the answer is required by all three buttons: **Sign in**, **Create account**, and the **Google**
+button. Google is a form button rather than a link, so it cannot be started without the answer (a wrong or empty answer
+returns to the page with a message and a new question). The answer is checked before the password is looked at, so a wrong
+answer reveals nothing about whether a password was right. A hidden trap field catches simple programs, and wrong answers
+count toward the same limit as wrong passwords. This stops casual bots, not a determined attacker, so keep Hermes on
+`127.0.0.1`, where only people on this computer can reach it. Coming back from Google needs no second question.
 
 **Every account has its own workspace.** A new account starts empty: it sees only the connectors, records, health history
 and keys it adds itself. Nothing is shared by accident: each account's data and keys live in their own files

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from typing import Any
 
 import pytest
+from flask.testing import FlaskClient
+from werkzeug.test import TestResponse
 
 from secintegrate import secrets
 from secintegrate.config.schema import ConnectorConfig
@@ -83,3 +86,30 @@ def advisory(i: int, **over: Any) -> dict[str, Any]:
                            "published_at": "2026-02-01T00:00:00Z", "updated_at": f"2026-03-0{i}T10:00:00Z"}
     rec.update(over)
     return rec
+
+
+# --- helpers for the sign-in and sign-up pages, which all carry a captcha question -------------------------------
+CAPTCHA_QUESTION = re.compile(r"What is (\d+) (plus|minus) (\d+)\?")
+CSRF_FIELD = re.compile(r'name="csrf_token" value="([^"]+)"')
+
+
+def solve_captcha(page: str) -> str:
+    match = CAPTCHA_QUESTION.search(page)
+    assert match is not None, "the page has no captcha question"
+    a, word, b = int(match[1]), match[2], int(match[3])
+    return str(a + b if word == "plus" else a - b)
+
+
+def csrf_in(page: str) -> str:
+    match = CSRF_FIELD.search(page)
+    assert match is not None, "the page has no CSRF field"
+    return match.group(1)
+
+
+def attempt(client: FlaskClient, email: str, password: str, *, url: str = "/login", answer: str | None = None,
+            **extra: str) -> TestResponse:
+    """Load the sign-in page, answer its question like a person would, and press Sign in."""
+    page = client.get("/login").get_data(as_text=True)
+    data = {"email": email, "password": password, "captcha": solve_captcha(page) if answer is None else answer,
+            "csrf_token": csrf_in(page), **extra}
+    return client.post(url, data=data)

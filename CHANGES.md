@@ -158,3 +158,12 @@ Tests are in `tests/test_autoheal.py` and `tests/test_web_auth.py`.
 - Residual risks, stated plainly: a public host name that resolves to a private address, or redirects to one, is not
   caught; all accounts share one master key; and a person with access to the computer's files can read every workspace.
 - Tests: `tests/test_signup.py`, `tests/test_workspaces.py`; checked live with two real accounts on a temporary instance.
+
+### The captcha now guards sign in and Google, not only sign up (`tests/test_captcha_gates.py`)
+
+- The question appears on the sign-in and sign-up pages, and the **Sign in**, **Create account** and **Google** buttons all
+  require the answer. Google is now a submit button (`formaction="/auth/google"`) rather than a link, so `POST /auth/google`
+  checks the answer, and `GET /auth/google` just redirects to the sign-in page. A wrong answer returns to the page it came
+  from (`/login` or `/signup`) with a message; the question is single use and the answer is checked before the password.
+- Wrong answers count toward the sign-in limit (5 per 10 minutes per address). The Google callback needs no question.
+- Before this, the question existed only on the sign-up form, so the other three entry points were unguarded.

@@ -12,6 +12,7 @@ from flask.testing import FlaskClient
 from typer.testing import CliRunner
 from werkzeug.test import TestResponse
 
+from conftest import attempt
 from secintegrate.cli import app as cli_app
 from secintegrate.storage.db import Database
 from secintegrate.web.app import create_app
@@ -111,9 +112,10 @@ def test_a_wrong_answer_creates_nothing_and_asks_a_new_question(tmp_path: Path, 
 
 def test_posting_without_ever_seeing_a_question_is_refused(tmp_path: Path, db: Database) -> None:
     client = make_client(tmp_path, db)
-    token = csrf_from(client, "/login")  # a session and a CSRF token, but no captcha question
+    with client.session_transaction() as session:
+        session["csrf"] = "fixed-token"  # a valid session and CSRF token, but no captcha question was ever issued
     response = client.post("/signup", data={"email": EMAIL, "password": PASSWORD, "confirm": PASSWORD,
-                                            "captcha": "5", "csrf_token": token})
+                                            "captcha": "5", "csrf_token": "fixed-token"})
     assert response.status_code == 400 and db.list_app_users() == []
 
 
@@ -155,8 +157,7 @@ def test_an_existing_email_is_told_to_sign_in_and_is_not_changed(tmp_path: Path,
     response = sign_up(client, EMAIL, "attacker chosen password")
     assert response.status_code == 409 and "already has an account" in response.get_data(as_text=True)
     assert db.get_app_user(EMAIL) == before
-    login = make_client(tmp_path, db)
-    ok = login.post("/login", data={"email": EMAIL, "password": PASSWORD, "csrf_token": csrf_from(login, "/login")})
+    ok = attempt(make_client(tmp_path, db), EMAIL, PASSWORD)
     assert ok.status_code == 302
 
 
@@ -216,7 +217,7 @@ def test_google_sign_in_leaves_an_existing_account_alone(tmp_path: Path, db: Dat
 # --- there is no user section and nothing to approve ------------------------------------------------------------
 def signed_in(tmp_path: Path, db: Database, email: str) -> FlaskClient:
     client = make_client(tmp_path, db)
-    client.post("/login", data={"email": email, "password": PASSWORD, "csrf_token": csrf_from(client, "/login")})
+    attempt(client, email, PASSWORD)
     return client
 
 
@@ -248,8 +249,8 @@ def test_other_host_names_are_sent_to_the_canonical_address(tmp_path: Path, db: 
 
 def test_google_redirect_uri_ignores_the_host_header(tmp_path: Path, db: Database) -> None:
     client = make_client(tmp_path, db, public_url="http://127.0.0.1:8000")
-    response = client.get("/auth/google", headers={"Host": "127.0.0.1:8000", "X-Forwarded-Host": "evil.example"})
-    query = parse_qs(urlparse(response.headers["Location"]).query)
+    location = start_google(client, headers={"Host": "127.0.0.1:8000", "X-Forwarded-Host": "evil.example"})
+    query = parse_qs(urlparse(location).query)
     assert query["redirect_uri"] == ["http://127.0.0.1:8000/auth/callback"]
 
 

@@ -10,6 +10,7 @@ import pytest
 from flask.testing import FlaskClient
 from typer.testing import CliRunner
 
+from conftest import attempt, csrf_in, solve_captcha
 from secintegrate.cli import app as cli_app
 from secintegrate.config.validator import has_errors, validate_text
 from secintegrate.connector_files import template_text
@@ -73,15 +74,12 @@ def make_client(tmp_path: Path, db: Database, google: Google | None = None, hook
 
 
 def token(client: FlaskClient) -> str:
-    match = CSRF.search(client.get("/login").get_data(as_text=True))
-    assert match is not None
-    return match.group(1)
+    return csrf_in(client.get("/login").get_data(as_text=True))
 
 
 def sign_in(client: FlaskClient, db: Database) -> str:
     db.set_app_password(EMAIL, hash_password(PASSWORD))
-    csrf = token(client)
-    response = client.post("/login", data={"email": EMAIL, "password": PASSWORD, "csrf_token": csrf})
+    response = attempt(client, EMAIL, PASSWORD)
     assert response.status_code == 302
     page = client.get("/").get_data(as_text=True)
     match = CSRF.search(page)
@@ -133,9 +131,8 @@ def test_password_login_works_and_shows_the_user(tmp_path: Path, db: Database) -
 def test_wrong_password_and_unknown_email_look_the_same(tmp_path: Path, db: Database) -> None:
     client = make_client(tmp_path, db)
     db.set_app_password(EMAIL, hash_password(PASSWORD))
-    csrf = token(client)
-    wrong = client.post("/login", data={"email": EMAIL, "password": "nope", "csrf_token": csrf})
-    unknown = client.post("/login", data={"email": "nobody@example.com", "password": "nope", "csrf_token": csrf})
+    wrong = attempt(client, EMAIL, "nope")
+    unknown = attempt(client, "nobody@example.com", "nope")
     assert wrong.status_code == unknown.status_code == 401
     assert "Wrong email or password." in wrong.get_data(as_text=True)
     assert "Wrong email or password." in unknown.get_data(as_text=True)
@@ -144,10 +141,9 @@ def test_wrong_password_and_unknown_email_look_the_same(tmp_path: Path, db: Data
 def test_repeated_failures_lock_out_even_the_right_password(tmp_path: Path, db: Database) -> None:
     client = make_client(tmp_path, db)
     db.set_app_password(EMAIL, hash_password(PASSWORD))
-    csrf = token(client)
     for _ in range(5):
-        client.post("/login", data={"email": EMAIL, "password": "nope", "csrf_token": csrf})
-    locked = client.post("/login", data={"email": EMAIL, "password": PASSWORD, "csrf_token": csrf})
+        attempt(client, EMAIL, "nope")
+    locked = attempt(client, EMAIL, PASSWORD)
     assert locked.status_code == 429
 
 
@@ -170,9 +166,7 @@ def test_logout_ends_the_session(tmp_path: Path, db: Database) -> None:
 def test_login_ignores_offsite_next(tmp_path: Path, db: Database) -> None:
     client = make_client(tmp_path, db)
     db.set_app_password(EMAIL, hash_password(PASSWORD))
-    csrf = token(client)
-    response = client.post("/login?next=//evil.com",
-                           data={"email": EMAIL, "password": PASSWORD, "csrf_token": csrf})
+    response = attempt(client, EMAIL, PASSWORD, url="/login?next=//evil.com")
     assert response.headers["Location"] == "/"
 
 
@@ -186,8 +180,14 @@ def test_cookie_and_response_headers_are_hardened(tmp_path: Path, db: Database) 
 
 
 # --- Google ---------------------------------------------------------------------------------------
-def start_google(client: FlaskClient) -> str:
-    response = client.get("/auth/google")
+def start_google(client: FlaskClient, answer: str | None = None, page_path: str = "/login",
+                 headers: dict[str, str] | None = None, *, source: str | None = None, **extra: str) -> str:
+    """Answer the page's question and press the Google button. Returns where it sends the browser."""
+    page = client.get(page_path, headers=headers).get_data(as_text=True)
+    data = {"captcha": solve_captcha(page) if answer is None else answer, "csrf_token": csrf_in(page), **extra}
+    if source:
+        data["from"] = source  # the sign-up page adds this so an error returns to the sign-up page
+    response = client.post("/auth/google", data=data, headers=headers)
     assert response.status_code == 302
     return str(response.headers["Location"])
 
