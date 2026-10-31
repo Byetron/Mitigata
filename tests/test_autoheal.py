@@ -133,3 +133,18 @@ def test_recheck_does_nothing_without_a_probe_or_pause(db: Database, vault: Secr
     assert recheck_paused(cfg, db, vault, notifier) is False
     db.update_connection("github_advisories", paused=1, last_category="auth_failed")
     assert recheck_paused(cfg, db, vault, notifier) is False  # no probe configured
+
+
+def test_connectors_that_never_ran_get_a_first_run_at_startup(db: Database, vault: SecretVault,
+                                                              notifier: RecordingNotifier) -> None:
+    from secintegrate.scheduler import schedule_first_runs
+
+    fresh = make_cfg("https://example.com")
+    done = make_cfg("https://example.com", connector="already_ran")
+    off = make_cfg("https://example.com", connector="switched_off", enabled=False)
+    db.update_connection("already_ran", status="healthy")
+    app = App(config_dir=Path("."), db=db, vault=vault, notifier=notifier)
+    sched = build_scheduler([fresh, done, off], app)
+    assert schedule_first_runs(sched, [fresh, done, off], app) == ["github_advisories"]
+    assert sched.get_job("github_advisories__first") is not None
+    assert sched.get_job("already_ran__first") is None and sched.get_job("switched_off__first") is None

@@ -156,7 +156,7 @@ def resume(connector: str = typer.Argument(..., help="Connector id to resume."),
 def serve(port: int = typer.Option(8000, "--port"), config_dir: Path = CONFIG_DIR,
           db_path: Path | None = DB_OPTION) -> None:
     """Start the scheduler and the web server (127.0.0.1 only)."""
-    from .scheduler import build_scheduler
+    from .scheduler import build_scheduler, schedule_first_runs
     from .web.app import create_app
     from .web.google import GoogleCredentials
     from .web.options import ConnectorHooks, WebOptions
@@ -168,6 +168,7 @@ def serve(port: int = typer.Option(8000, "--port"), config_dir: Path = CONFIG_DI
     for cfg in configs:
         ctx.db.ensure_connection(cfg.connector)
     sched = build_scheduler(configs, ctx)
+    schedule_first_runs(sched, configs, ctx)
     sched.start()
 
     def session_secret() -> str:

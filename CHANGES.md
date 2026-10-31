@@ -106,3 +106,10 @@ Tests are in `tests/test_autoheal.py` and `tests/test_web_auth.py`.
 - `hermes serve` pins the address to `http://127.0.0.1:PORT` (other host names are redirected there) so the cookie and the
   Google redirect URI match, and so a forged Host header cannot change the redirect URI.
 - Old databases gain the `status` column on start; people who could sign in before stay active.
+
+### Start-up first run and live-run log
+
+- `hermes serve` runs every enabled connector that has never run once, staggered a few seconds apart
+  (`scheduler.schedule_first_runs`, tested in `tests/test_autoheal.py`). Before this, a fresh database showed events from
+  only whichever connector had last been run by hand.
+- `docs/live-run-log.md` records one real run of every connector (spec section 8.3).

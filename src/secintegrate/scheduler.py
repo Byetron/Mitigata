@@ -93,6 +93,31 @@ def remove_connector_jobs(sched: BackgroundScheduler, connector: str) -> None:
             sched.remove_job(job_id)
 
 
+FIRST_RUN_DELAY_SECONDS = 5
+FIRST_RUN_SPACING_SECONDS = 4
+
+
+def schedule_first_runs(sched: HermesScheduler, configs: Iterable[ConnectorConfig], app: App) -> list[str]:
+    """Run every enabled connector that has never run, once, a few seconds after start-up.
+
+    Without this a new install shows an empty dashboard until each connector's next cron time (which can be a day
+    away). Runs are staggered so they do not all hit the network at the same moment.
+    """
+    started: list[str] = []
+    for cfg in configs:
+        connection = app.db.get_connection(cfg.connector)
+        if not cfg.enabled or (connection is not None and connection["status"] != "never_run"):
+            continue
+        delay = FIRST_RUN_DELAY_SECONDS + FIRST_RUN_SPACING_SECONDS * len(started)
+        sched.add_job(_run_job, DateTrigger(run_date=datetime.now(UTC) + timedelta(seconds=delay)),
+                      args=[cfg, app, sched], id=f"{cfg.connector}__first", replace_existing=True,
+                      misfire_grace_time=300)
+        started.append(cfg.connector)
+    if started:
+        logger.info("first run scheduled for: %s", ", ".join(started))
+    return started
+
+
 def build_scheduler(configs: Iterable[ConnectorConfig], app: App) -> HermesScheduler:
     sched = HermesScheduler()
     for cfg in configs:

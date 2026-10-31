@@ -103,6 +103,7 @@ Hermes fixes what it safely can, and never rewrites a config:
 | Connector paused by a rejected key | A probe runs hourly; if the key works again the connector resumes. Setting the secret again also resumes it |
 | Records quarantined as `bad_data` | Re-tried after every good run; those that now map cleanly (for example after you fix the mapping) are saved and released |
 | The same bad record on every run | Stored once, not once per run |
+| A connector that has never run | Runs once a few seconds after `hermes serve` starts, so a new install is not empty until its next cron time |
 
 Things only a person can fix (a wrong path, a changed API, a rejected key with no probe) stay stopped and say what to do.
 
