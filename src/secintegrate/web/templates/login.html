@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Sign in | Hermes{% endblock %}
+{% block heading %}Hermes{% endblock %}
+{% block subtitle %}Sign in to continue.{% endblock %}
+
+{% block style %}
+  .login { max-width: 400px; margin: 24px auto; display: grid; gap: 16px; }
+  .login label { display: block; font-size: .82rem; font-weight: 600; margin-bottom: 4px; }
+  input { width: 100%; font: inherit; font-size: .95rem; color: var(--text); background: var(--bg);
+          border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .btn { display: block; width: 100%; text-align: center; font: inherit; font-weight: 600; color: #fff;
+         background: var(--accent); border: 0; border-radius: 8px; padding: 10px 14px; cursor: pointer; text-decoration: none; }
+  .btn:hover { filter: brightness(1.08); }
+  .btn.google { background: var(--card); color: var(--text); border: 1px solid var(--line); }
+  .btn.google:hover { border-color: var(--accent); filter: none; }
+  .error { color: var(--bad); background: var(--err-bg); border: 1px solid var(--err-line); border-radius: 8px;
+           padding: 8px 12px; font-size: .88rem; }
+  .or { text-align: center; color: var(--muted); font-size: .8rem; }
+  .field { margin-bottom: 12px; }
+  code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+{% endblock %}
+
+{% block content %}
+<div class="login">
+  {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+  <div class="card">
+    {% if google_enabled %}
+      <a class="btn google" href="/auth/google">Sign in with Google</a>
+      <div class="or" style="margin:14px 0">or use a password</div>
+    {% endif %}
+    <form method="post" action="/login?next={{ next|urlencode }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="field"><label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="username" required autofocus></div>
+      <div class="field"><label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required></div>
+      <button class="btn" type="submit">Sign in</button>
+    </form>
+  </div>
+  {% if not google_enabled %}
+  <div class="card sub">
+    <strong>Google sign-in is not set up.</strong> To enable it, create an OAuth client at
+    console.cloud.google.com (type: Web application, redirect URI <code>http://127.0.0.1:8000/auth/callback</code>), then run
+    <code>hermes secret set GOOGLE_CLIENT_ID</code> and <code>hermes secret set GOOGLE_CLIENT_SECRET</code>.
+  </div>
+  {% endif %}
+  <div class="card sub">
+    No account yet? An administrator runs <code>hermes auth add you@example.com</code> to allow a Google account, or
+    <code>hermes auth set-password you@example.com</code> to create a password login.
+  </div>
+</div>
+{% endblock %}

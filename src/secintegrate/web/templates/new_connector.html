@@ -28,6 +28,16 @@
   button.preset:hover { border-color: var(--accent); color: var(--accent); filter: none; }
   .presets { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .ok { max-width: 860px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+  .tabs button { color: var(--text); background: var(--card); border: 1px solid var(--line); font-weight: 500; padding: 7px 16px; }
+  .tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  [hidden] { display: none !important; }
+  textarea { width: 100%; min-height: 520px; font: .82rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text);
+             background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; resize: vertical; tab-size: 2; }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .yaml-issues .issue { padding: 4px 0; }
+  .yaml-issues .line { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 {% endblock %}
 
 {% macro issues_for(name) %}
@@ -68,7 +78,14 @@
   {% if general %}<div class="box"><strong>Notes</strong><ul>
     {% for g in general %}<li class="issue {{ g.severity }}">{{ g.message }}</li>{% endfor %}</ul></div>{% endif %}
 
+  <div class="tabs" role="tablist">
+    <button type="button" role="tab" id="tab-form" aria-selected="{{ 'true' if tab != 'yaml' else 'false' }}">Use the form</button>
+    <button type="button" role="tab" id="tab-yaml" aria-selected="{{ 'true' if tab == 'yaml' else 'false' }}">Write YAML</button>
+  </div>
+
+  <div id="pane-form" {{ 'hidden' if tab == 'yaml' }}>
   <form id="connector-form" method="post" action="/connectors/new">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="card">
       <h3>Start from a preset</h3>
       <div class="presets">
@@ -158,10 +175,61 @@
 
     <button type="submit">Validate and create</button>
   </form>
+  </div>
+
+  <div id="pane-yaml" {{ 'hidden' if tab != 'yaml' }}>
+    <form id="yaml-form" method="post" action="/connectors/new-yaml" style="max-width:860px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="card">
+        <h3>Write the YAML yourself</h3>
+        <p class="sub" style="margin:0 0 10px">This is a commented template: every line says what to enter. Edit it,
+          then check it. It uses the same rules as the form and <code>hermes validate</code>. The same text is printed by
+          <code>hermes template</code>.</p>
+        <textarea id="yaml_text" name="yaml_text" spellcheck="false" autocomplete="off">{{ yaml_text }}</textarea>
+        <div id="yaml-issues" class="yaml-issues" aria-live="polite">
+          {% for i in yaml_issues %}<div class="issue {{ i.severity }}"><span class="line">line {{ i.line }}</span>{{ i.message }}</div>{% endfor %}
+        </div>
+        <div class="actions">
+          <button type="button" class="preset" id="yaml-check">Check</button>
+          <button type="submit">Validate and create</button>
+          <button type="button" class="preset" id="yaml-reset">Reset to template</button>
+        </div>
+      </div>
+    </form>
+  </div>
 
   <script>
     const PRESETS = {{ presets|tojson }};
+    const TEMPLATE = {{ template|tojson }};
     const form = document.getElementById('connector-form');
+
+    function showTab(name) {
+      document.getElementById('pane-form').hidden = name !== 'form';
+      document.getElementById('pane-yaml').hidden = name !== 'yaml';
+      document.getElementById('tab-form').setAttribute('aria-selected', String(name === 'form'));
+      document.getElementById('tab-yaml').setAttribute('aria-selected', String(name === 'yaml'));
+    }
+    document.getElementById('tab-form').addEventListener('click', function () { showTab('form'); });
+    document.getElementById('tab-yaml').addEventListener('click', function () { showTab('yaml'); });
+
+    document.getElementById('yaml-reset').addEventListener('click', function () {
+      document.getElementById('yaml_text').value = TEMPLATE;
+      document.getElementById('yaml-issues').replaceChildren();
+    });
+    document.getElementById('yaml-check').addEventListener('click', function () {
+      const box = document.getElementById('yaml-issues');
+      fetch('/connectors/validate-yaml', { method: 'POST', body: new FormData(document.getElementById('yaml-form')) })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          box.replaceChildren();
+          if (!data.issues.length) { const ok = document.createElement('div'); ok.className = 'issue'; ok.textContent = 'No problems found.'; box.appendChild(ok); }
+          data.issues.forEach(function (i) {
+            const row = document.createElement('div'); row.className = 'issue ' + i.severity;
+            const line = document.createElement('span'); line.className = 'line'; line.textContent = 'line ' + i.line;
+            row.appendChild(line); row.appendChild(document.createTextNode(i.message)); box.appendChild(row);
+          });
+        });
+    });
 
     function show(container, issues) {
       container.replaceChildren();

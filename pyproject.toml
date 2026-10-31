@@ -31,7 +31,7 @@ secintegrate = "secintegrate.cli:app"
 where = ["src"]
 
 [tool.setuptools.package-data]
-secintegrate = ["storage/schema.sql", "web/templates/*.html"]
+secintegrate = ["storage/schema.sql", "web/templates/*.html", "config/template.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

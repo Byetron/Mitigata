@@ -79,3 +79,19 @@ Every acceptance criterion and the test that proves it. Run everything with `pyt
 - **Dev tools.** `ruff` and `mypy` were added to the dev extras because the brief requires them to pass.
 - **A bug found and fixed along the way:** a missing or wrongly shaped `records_path` used the old string error codes and
   would have crashed; it is now a `schema_changed` failure (`test_missing_records_path_is_schema_changed`).
+
+## Later additions (after the brief)
+
+Tests are in `tests/test_autoheal.py` and `tests/test_web_auth.py`.
+
+- **Automatic recovery** (`autoheal.py`, `scheduler.py`, `probe.recheck_paused`): growing retry delays for transient
+  failures, hourly auto-resume of auth-paused connectors that have a probe, and re-trying quarantined records.
+  Quarantine no longer stores the same record twice. This is a deliberate step past the brief's "no automatic fixes"
+  non-goal, limited to actions that cannot change a config or hide a real problem.
+- **YAML editor and template** (`config/template.yaml`, `connector_files.py`): same validator, file saved verbatim.
+- **Remove connectors**: soft delete to `.trash/`, state cleared, records kept; live scheduler hooks for add and remove.
+- **Sign-in** (`web/auth.py`, `web/google.py`, `cli_auth.py`): Google (code flow plus PKCE, on `httpx`, so no new
+  dependency) and a local-password fallback, an allowlist table (`app_users`), CSRF on every POST, login throttling,
+  hardened cookies and headers. The password fallback exists because Google credentials can only be created by you.
+- **Decisions:** the web UI now refuses anonymous visitors; `db reset` keeps sign-in users and secrets; no Google tokens are
+  stored; the session secret is kept in the vault as `SESSION_SECRET`.

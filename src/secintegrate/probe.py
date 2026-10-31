@@ -101,3 +101,31 @@ def _send_probe(cfg: ConnectorConfig, vault: SecretVault, sleep: Callable[[float
                      cfg.probe.expect_status)
         return ProbeResult(False, FailureCategory.UNKNOWN, response.status, response.latency_ms)
     return ProbeResult(True, None, response.status, response.latency_ms)
+
+
+def recheck_paused(
+    cfg: ConnectorConfig,
+    db: Database,
+    vault: SecretVault,
+    notifier: Notifier,
+    sleep: Callable[[float], None] = time.sleep,
+    transport: httpx.BaseTransport | None = None,
+) -> bool:
+    """Auto-resume: one probe for a connector paused by auth failures. If it passes, the pause is lifted.
+
+    This covers a key that was fixed at the provider, or a provider outage that looked like a bad key.
+    A connector with no probe is never rechecked, because a real sync could repeat a rejected login.
+    """
+    current = db.get_connection(cfg.connector) or {}
+    if cfg.probe is None or not current.get("paused"):
+        return False
+    if current.get("last_category") not in (None, FailureCategory.AUTH_FAILED.value):
+        return False
+    result = _send_probe(cfg, vault, sleep, transport)
+    db.add_probe(cfg.connector, result.ok, result.category.value if result.category else None,
+                 result.status, result.latency_ms)
+    if not result.ok:
+        return False
+    logger.info("%s: credential works again, resuming automatically", cfg.connector)
+    refresh_connection(db, notifier, cfg.connector, paused=0, consecutive_failures=0, message=None)
+    return True

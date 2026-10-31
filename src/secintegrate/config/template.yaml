@@ -1,0 +1,64 @@
+# ============================================================================
+# Hermes connector template
+# Copy this into config/connectors/<name>.yaml (the file name does not matter),
+# or paste it into the YAML box on the "New connector" page.
+# Check it with:  hermes validate        Add its secret with:  hermes secret set MY_API_KEY
+# Lines starting with # are comments. Delete any optional block you do not need.
+# ============================================================================
+
+connector: my_connector          # REQUIRED. Unique id: 2-41 lowercase letters, digits, underscores. Start with a letter.
+source: my_source                # REQUIRED. Label stored on every record so you can tell sources apart.
+enabled: true                    # true or false. A disabled connector is checked but never scheduled.
+schedule: "0 * * * *"            # REQUIRED. Cron, 5 fields: minute hour day month weekday. "*/15 * * * *" = every 15 min.
+base_url: https://api.example.com   # REQUIRED. Must start with https://
+
+auth:                            # REQUIRED. How to log in.
+  type: bearer                   #   bearer | basic | api_key_header | none
+  secret: MY_API_KEY             #   The NAME of a stored secret, never the key itself. Store it: hermes secret set MY_API_KEY
+  # username_env: MY_USERNAME    #   basic only: name of the stored secret that holds the username
+  # header: X-Api-Key            #   api_key_header only: the header that carries the key
+  # (for type: none, delete secret and leave nothing else)
+
+# headers:                       # Optional. Extra headers sent on every request.
+#   Accept: application/json
+
+# rate_limit:                    # Optional. Slow Hermes down before the provider has to.
+#   max_requests: 45
+#   per_seconds: 30
+
+probe:                           # Recommended. One cheap request that checks the connection between runs.
+  path: /health                  #   Must start with /. Pick an endpoint that is fast and needs the same login.
+  interval_minutes: 15           #   1-1440
+  expect_status: 200
+
+endpoints:                       # REQUIRED. One or more URLs to read, in order.
+  - name: items                  #   Unique name for this endpoint.
+    path: /v1/items              #   Must start with /. Joined to base_url.
+    # params:                    #   Optional query string values.
+    #   per_page: 100
+    records_path: data           #   Where the list of records is in the reply. "" means the reply is the list.
+
+    # pagination:                #   Optional. Delete if the endpoint returns everything in one reply.
+    #   type: offset             #     link_header | offset | page_number | cursor
+    #   start_param: offset      #     offset: names of the start and limit parameters
+    #   limit_param: limit
+    #   limit: 100
+    #   total_path: total        #     where the total count is in the reply (optional)
+
+    # incremental:               #   Optional. Fetch only what changed since the last good run.
+    #   cursor_field: updated_at #     field in each record that holds the change time
+    #   param: updated_since     #     query parameter to send
+    #   format: "{value}"        #     how to write the value; {value} is replaced with the time
+    #   initial: "2026-01-01"    #     where to start the very first time
+
+    mapping:                     #   REQUIRED. Which source field fills each field of the shared shape.
+      target: event              #     user | device | event
+      fields:
+        # event needs id, timestamp, severity.  user needs id, name.  device needs id.
+        id:          { from: id, required: true }
+        timestamp:   { from: created_at, transform: iso8601, required: true }
+        severity:    { from: severity, transform: lower, default: unknown }
+        type:        { const: example }                 # const = a fixed value
+        description: { from: summary, default: "" }
+        # transforms: to_string lower upper strip iso8601 epoch_ms_to_iso active_to_status
+        # a rule is either required: true OR has a default, not both

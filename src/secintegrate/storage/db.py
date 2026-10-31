@@ -103,17 +103,42 @@ class Database:
             ).fetchone()
         return dict(row) if row else None
 
-    def add_quarantine(self, run_id: int, connector: str, endpoint: str, index: int, reason: str, raw: Any) -> None:
+    def add_quarantine(self, run_id: int, connector: str, endpoint: str, index: int, reason: str, raw: Any) -> bool:
+        """Store a bad record. An identical record already waiting is not stored twice. Returns True if new."""
         try:
             raw_json = redact(json.dumps(raw, default=str))
         except (TypeError, ValueError):
             raw_json = redact(repr(raw))
         with self.conn() as c:
+            if c.execute(
+                "SELECT 1 FROM quarantine WHERE connector=? AND endpoint=? AND reason=? AND raw_json=? LIMIT 1",
+                (connector, endpoint, reason, raw_json),
+            ).fetchone():
+                return False
             c.execute(
                 "INSERT INTO quarantine (run_id, connector, endpoint, record_index, reason, raw_json, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (run_id, connector, endpoint, index, reason, raw_json, now_iso()),
             )
+        return True
+
+    def quarantined(self, connector: str, limit: int = 500) -> list[dict[str, Any]]:
+        with self.conn() as c:
+            rows = c.execute(
+                "SELECT id, endpoint, raw_json FROM quarantine WHERE connector=? ORDER BY id LIMIT ?",
+                (connector, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_quarantine(self, row_id: int) -> None:
+        with self.conn() as c:
+            c.execute("DELETE FROM quarantine WHERE id=?", (row_id,))
+
+    def delete_connector_state(self, connector: str) -> None:
+        """Forget a removed connector's health, history, probes and cursor. Fetched records are kept."""
+        with self.conn() as c:
+            for table in ("connections", "runs", "quarantine", "sync_state", "probes"):
+                c.execute(f"DELETE FROM {table} WHERE connector=?", (connector,))  # noqa: S608
 
     # --- probes ----------------------------------------------------------
     def add_probe(self, connector: str, ok: bool, category: str | None, http_status: int | None,
@@ -230,6 +255,32 @@ class Database:
                 "recent_devices": rows(
                     "SELECT source, id, os, owner, last_seen FROM devices ORDER BY last_seen DESC LIMIT 5"),
             }
+
+    # --- people who may sign in to the web UI ----------------------------------
+    # The `app_users` table is not in ALL_TABLES, so `db reset` never locks you out.
+    def add_app_user(self, email: str) -> None:
+        with self.conn() as c:
+            c.execute("INSERT OR IGNORE INTO app_users (email, added_at) VALUES (?, ?)", (email.lower(), now_iso()))
+
+    def set_app_password(self, email: str, password_hash: str) -> None:
+        self.add_app_user(email)
+        with self.conn() as c:
+            c.execute("UPDATE app_users SET password_hash=? WHERE email=?", (password_hash, email.lower()))
+
+    def get_app_user(self, email: str) -> dict[str, Any] | None:
+        with self.conn() as c:
+            row = c.execute("SELECT * FROM app_users WHERE email=?", (email.lower(),)).fetchone()
+        return dict(row) if row else None
+
+    def list_app_users(self) -> list[dict[str, Any]]:
+        with self.conn() as c:
+            rows = c.execute("SELECT email, password_hash IS NOT NULL AS has_password, added_at "
+                             "FROM app_users ORDER BY email").fetchall()
+        return [dict(r) for r in rows]
+
+    def remove_app_user(self, email: str) -> bool:
+        with self.conn() as c:
+            return c.execute("DELETE FROM app_users WHERE email=?", (email.lower(),)).rowcount > 0
 
     def count(self, table: str) -> int:
         if table not in ALL_TABLES:

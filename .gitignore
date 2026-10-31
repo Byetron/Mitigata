@@ -6,3 +6,7 @@ __pycache__/
 .venv/
 *.egg-info/
 .pytest_cache/
+
+# throwaway demo connectors and removed-connector trash
+config/connectors/demo_*.yaml
+config/connectors/.trash/

@@ -120,7 +120,8 @@ def test_network_loss_mid_run(httpserver: HTTPServer, db: Database, vault: Secre
     assert sleeps == [1.0, 2.0, 4.0]
     assert db.count("events") == 1  # page 1 kept
     assert db.get_cursor("github_advisories", "advisories") is None  # cursor not advanced
-    assert r.message == "Cannot reach `localhost`. Check network connectivity."  # the connector's configured host
+    assert r.message == ("Cannot reach `localhost`. Check network connectivity. "  # the connector's configured host
+                         "Hermes will retry automatically in 5 minutes.")
 
 
 def test_incremental_second_run_uses_cursor(httpserver: HTTPServer, db: Database, vault: SecretVault,

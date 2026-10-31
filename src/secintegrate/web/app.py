@@ -1,4 +1,4 @@
-"""Flask app: home dashboard with connector health (FR-10) and the connector form (B5)."""
+"""Flask app: home dashboard with connector health, the connector form and YAML editor, removal, and sign-in."""
 from __future__ import annotations
 
 from collections.abc import Callable, Collection
@@ -6,18 +6,22 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from flask import Flask, Response, jsonify, redirect, render_template, request
+from flask import Flask, Response, abort, jsonify, redirect, render_template, request
 from werkzeug.wrappers import Response as RedirectResponse
 
-from ..config.loader import config_files, read_yaml
+from ..config.loader import config_files, parse_config, read_yaml
 from ..config.schema import TARGET_FIELDS
 from ..config.validator import ValidationIssue, existing_ids, has_errors, validate_text
+from ..connector_files import remove_connector, template_text, write_connector
 from ..secrets import redact
 from ..storage.db import Database
 from ..transforms import TRANSFORMS
 from . import forms
+from .auth import register_auth
+from .options import WebOptions
 
 SecretNames = Callable[[], Collection[str]]
+MAX_YAML_BYTES = 64 * 1024
 
 
 def _register_connections(config_dir: Path, db: Database) -> None:
@@ -30,16 +34,28 @@ def _register_connections(config_dir: Path, db: Database) -> None:
             db.ensure_connection(data["connector"])
 
 
-def create_app(config_dir: str | Path, db: Database, secret_names: SecretNames | None = None) -> Flask:
+def create_app(config_dir: str | Path, db: Database, secret_names: SecretNames | None = None,
+               options: WebOptions | None = None) -> Flask:
     """`secret_names` returns the names in the vault; None skips that validation rule."""
     config_dir = Path(config_dir)
+    opts = options or WebOptions(require_login=False)
     app = Flask(__name__)
+    register_auth(app, db, opts)
 
     def validate_form(values: dict[str, Any]) -> tuple[str, list[ValidationIssue]]:
         text = yaml.safe_dump(forms.build_config(values), sort_keys=False)
         names = secret_names() if secret_names else None
         _, issues = validate_text(text, f"{values['connector_id'] or 'new'}.yaml", existing_ids(config_dir), names)
         return text, issues
+
+    def validate_yaml_text(text: str) -> tuple[Any, list[ValidationIssue]]:
+        names = secret_names() if secret_names else None
+        return validate_text(text, "connector.yaml", existing_ids(config_dir), names)
+
+    def announce(path: Path, connector: str) -> None:
+        db.ensure_connection(connector)
+        if opts.hooks is not None:
+            opts.hooks.added(parse_config(path))  # the running scheduler picks it up without a restart
 
     @app.get("/")
     def index() -> str:
@@ -63,31 +79,41 @@ def create_app(config_dir: str | Path, db: Database, secret_names: SecretNames |
     def health() -> RedirectResponse:
         return redirect("/")  # health lives on the home page
 
+    @app.post("/connectors/<connector>/delete")
+    def delete_connector(connector: str) -> RedirectResponse:
+        if remove_connector(config_dir, db, connector) is None:
+            abort(404)
+        if opts.hooks is not None:
+            opts.hooks.removed(connector)
+        return redirect("/")
+
     def render_form(values: dict[str, Any], issues: list[ValidationIssue] | None = None,
-                    result: dict[str, str] | None = None, status: int = 200) -> tuple[str, int]:
+                    result: dict[str, str] | None = None, status: int = 200, tab: str = "form",
+                    yaml_text: str | None = None,
+                    yaml_issues: list[ValidationIssue] | None = None) -> tuple[str, int]:
         by_field, general = forms.group_issues(issues or [])
         html = render_template(
             "new_connector.html", v=forms.safe_for_display(values), by_field=by_field, general=general,
             result=result, targets=TARGET_FIELDS, transforms=sorted(TRANSFORMS), page="new",
-            presets=forms.presets(),
+            presets=forms.presets(), tab=tab, yaml_text=yaml_text if yaml_text is not None else template_text(),
+            yaml_issues=yaml_issues or [], template=template_text(),
         )
         return html, status
 
     @app.get("/connectors/new")
     def new_connector() -> tuple[str, int]:
-        return render_form(forms.default_values())
+        return render_form(forms.default_values(), tab="yaml" if request.args.get("tab") == "yaml" else "form")
 
     @app.post("/connectors/validate-field")
     def validate_field() -> Response:
         """Validate the whole form (cross-field rules need it), return only one field's issues."""
         values = forms.parse_form(request.form)
         _, issues = validate_form(values)
-        by_field, general = forms.group_issues(issues)
+        by_field, _ = forms.group_issues(issues)
         field = request.form.get("field")
         chosen = by_field.get(field, []) if field else issues
         if field in ("mapping_target", "mapping") or (field or "").startswith("map_"):
             chosen = by_field.get("mapping", []) + by_field.get("mapping_target", [])
-        del general
         return jsonify(field=field, issues=[{"message": i.message, "severity": i.severity} for i in chosen])
 
     @app.post("/connectors/new")
@@ -96,11 +122,28 @@ def create_app(config_dir: str | Path, db: Database, secret_names: SecretNames |
         text, issues = validate_form(values)
         if has_errors(issues):
             return render_form(values, issues, status=400)
-        filename = f"{values['connector_id']}.yaml"
-        target = config_dir / filename
-        config_dir.mkdir(parents=True, exist_ok=True)
-        target.write_text(text, encoding="utf-8")
-        db.ensure_connection(values["connector_id"])
-        return render_form(values, issues, result={"yaml": text, "path": str(target)})
+        path = write_connector(config_dir, values["connector_id"], text)
+        announce(path, values["connector_id"])
+        return render_form(values, issues, result={"yaml": text, "path": str(path)})
+
+    @app.post("/connectors/validate-yaml")
+    def validate_yaml() -> Response:
+        text = (request.form.get("yaml_text") or "")[:MAX_YAML_BYTES]
+        _, issues = validate_yaml_text(text)
+        return jsonify(issues=[{"line": i.line, "path": i.path, "message": i.message, "severity": i.severity}
+                               for i in issues])
+
+    @app.post("/connectors/new-yaml")
+    def create_from_yaml() -> tuple[str, int]:
+        text = request.form.get("yaml_text") or ""
+        if len(text.encode("utf-8")) > MAX_YAML_BYTES:
+            abort(413)
+        cfg, issues = validate_yaml_text(text)
+        if cfg is None or has_errors(issues):
+            return render_form(forms.default_values(), status=400, tab="yaml", yaml_text=text, yaml_issues=issues)
+        path = write_connector(config_dir, cfg.connector, text if text.endswith("\n") else text + "\n")
+        announce(path, cfg.connector)
+        return render_form(forms.default_values(), issues, result={"yaml": text, "path": str(path)}, tab="yaml",
+                           yaml_text=text)
 
     return app

@@ -27,6 +27,7 @@ hermes secret set GITHUB_TOKEN   # typed at a hidden prompt, never as an argumen
 hermes secret set NVD_API_KEY
 hermes secret list               # names and update times only
 hermes validate                  # errors block running; warnings (for example "no probe") do not
+hermes auth set-password you@example.com   # who may sign in (see "Signing in" below)
 hermes serve                     # scheduler + dashboard on http://127.0.0.1:8000
 ```
 
@@ -49,6 +50,26 @@ pytest ; ruff check src tests ; mypy
 
 `secintegrate` still works as an alias for `hermes`.
 
+## Signing in
+
+The dashboard needs a sign-in. Nobody can sign in until you allow someone, so run this once:
+
+```powershell
+hermes auth set-password you@example.com   # password login, typed at a hidden prompt (10+ characters)
+hermes auth add you@gmail.com              # allow a Google account (needs the Google setup below)
+hermes auth list ; hermes auth remove you@example.com
+```
+
+**Google sign-in (optional, recommended).** In the Google Cloud Console create an OAuth client of type *Web
+application* and add the redirect URI `http://127.0.0.1:8000/auth/callback`. Then store its two values:
+`hermes secret set GOOGLE_CLIENT_ID` and `hermes secret set GOOGLE_CLIENT_SECRET`. Only addresses you allowed with
+`hermes auth add`, and that Google says are verified, can sign in. Hermes uses the authorization-code flow with PKCE
+and keeps no Google tokens.
+
+Passwords are stored as salted scrypt hashes. Five wrong attempts lock that account (and your address) for ten minutes.
+Every form carries a CSRF token, the session cookie is HttpOnly and SameSite=Lax, and sessions end after 8 hours.
+This protects a local dashboard; it is not a hardened internet-facing login, so keep Hermes on `127.0.0.1`.
+
 ## Adding a connector
 
 1. Open `http://127.0.0.1:8000/connectors/new`.
@@ -58,6 +79,28 @@ pytest ; ruff check src tests ; mypy
 4. Submit. A valid file is written to `config/connectors/` and starts running after the next `hermes serve`.
 
 A source starting with `=` in a mapping row is a fixed value, for example `=high`.
+
+**Prefer to write YAML?** Open the **Write YAML** tab on the same page. It holds a commented template that says what to
+enter on every line, checks your text with the same validator (errors show the line number), and saves your file exactly
+as you wrote it, comments included. The same template is available from the terminal:
+`hermes template` prints it and `hermes template --out config/connectors/mine.yaml` writes it.
+
+**Removing a connector.** Press **Remove** on its card, or run `hermes remove NAME`. The config moves to
+`config/connectors/.trash/` (copy it back to restore), its health history, probes and cursor are cleared, and fetched
+records are kept. A running `hermes serve` picks up added and removed connectors without a restart.
+
+## Automatic recovery
+
+Hermes fixes what it safely can, and never rewrites a config:
+
+| Situation | What happens on its own |
+|---|---|
+| Server error, network failure, or rate limiting | Retries after 5, 15, then 45 minutes (the message on the card says so), then waits for the normal schedule |
+| Connector paused by a rejected key | A probe runs hourly; if the key works again the connector resumes. Setting the secret again also resumes it |
+| Records quarantined as `bad_data` | Re-tried after every good run; those that now map cleanly (for example after you fix the mapping) are saved and released |
+| The same bad record on every run | Stored once, not once per run |
+
+Things only a person can fix (a wrong path, a changed API, a rejected key with no probe) stay stopped and say what to do.
 
 ## Monitoring
 

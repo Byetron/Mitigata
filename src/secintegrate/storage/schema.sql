@@ -86,3 +86,9 @@ CREATE TABLE IF NOT EXISTS probes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_probes_connector ON probes (connector, id);
+
+CREATE TABLE IF NOT EXISTS app_users (
+  email         TEXT PRIMARY KEY,
+  password_hash TEXT,
+  added_at      TEXT NOT NULL
+);

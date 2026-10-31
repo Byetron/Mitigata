@@ -2,23 +2,28 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from pathlib import Path
 
 import typer
 
 from .bootstrap import App, build_app
+from .cli_auth import auth_app
 from .cli_common import CONFIG_DIR, DB_OPTION, friendly_errors, resolve_db
 from .cli_secrets import secret_app
 from .config.loader import config_files, find_connector_file, parse_config
 from .config.schema import ConnectorConfig
 from .config.validator import has_errors, validate_dir, validate_paths
+from .connector_files import remove_connector, template_text
 from .health import refresh_connection
 from .logging_utils import setup_logging
+from .security.errors import SecretNotFoundError
 
 app = typer.Typer(help="Hermes: config-driven security integration platform.", no_args_is_help=True)
 db_app = typer.Typer(help="Database maintenance.", no_args_is_help=True)
 app.add_typer(db_app, name="db")
 app.add_typer(secret_app, name="secret")
+app.add_typer(auth_app, name="auth")
 
 
 def _app(config_dir: Path, db_path: Path | None) -> App:
@@ -105,6 +110,35 @@ def run(connector: str = typer.Argument(..., help="Connector id."),
 
 
 @app.command()
+def template(out: Path | None = typer.Option(None, "--out", help="Write to a file instead of the screen.")) -> None:
+    """Print a commented connector template. Copy it to config/connectors/ and edit it."""
+    text = template_text()
+    if out is None:
+        typer.echo(text)
+        return
+    if out.exists():
+        typer.echo(f"{out} already exists. Nothing was written.")
+        raise typer.Exit(1)
+    out.write_text(text, encoding="utf-8")
+    typer.echo(f"Wrote {out}")
+
+
+@app.command()
+@friendly_errors
+def remove(connector: str = typer.Argument(..., help="Connector id to remove."),
+           yes: bool = typer.Option(False, "--yes", help="Skip confirmation."),
+           config_dir: Path = CONFIG_DIR, db_path: Path | None = DB_OPTION) -> None:
+    """Remove a connector. Its config goes to .trash, its health history is cleared, fetched records are kept."""
+    if not yes:
+        typer.confirm(f"Remove {connector}?", abort=True)
+    moved = remove_connector(config_dir, _app(config_dir, db_path).db, connector)
+    if moved is None:
+        typer.echo(f"No connector '{connector}' found in {config_dir}.")
+        raise typer.Exit(2)
+    typer.echo(f"Removed {connector}. Its config was kept at {moved}.")
+
+
+@app.command()
 @friendly_errors
 def resume(connector: str = typer.Argument(..., help="Connector id to resume."),
            config_dir: Path = CONFIG_DIR, db_path: Path | None = DB_OPTION) -> None:
@@ -124,6 +158,8 @@ def serve(port: int = typer.Option(8000, "--port"), config_dir: Path = CONFIG_DI
     """Start the scheduler and the web server (127.0.0.1 only)."""
     from .scheduler import build_scheduler
     from .web.app import create_app
+    from .web.google import GoogleCredentials
+    from .web.options import ConnectorHooks, WebOptions
 
     setup_logging("logs")
     log = logging.getLogger("secintegrate")
@@ -133,9 +169,33 @@ def serve(port: int = typer.Option(8000, "--port"), config_dir: Path = CONFIG_DI
         ctx.db.ensure_connection(cfg.connector)
     sched = build_scheduler(configs, ctx)
     sched.start()
-    log.info("scheduled %d connector(s); dashboard at http://127.0.0.1:%d/", sum(c.enabled for c in configs), port)
+
+    def session_secret() -> str:
+        try:
+            return ctx.vault.load("SESSION_SECRET").reveal()
+        except SecretNotFoundError:
+            value = secrets.token_hex(32)
+            ctx.vault.store("SESSION_SECRET", value)
+            return value
+
+    def google_credentials() -> GoogleCredentials | None:
+        try:
+            return GoogleCredentials(ctx.vault.load("GOOGLE_CLIENT_ID").reveal(),
+                                     ctx.vault.load("GOOGLE_CLIENT_SECRET").reveal())
+        except SecretNotFoundError:
+            return None
+
+    options = WebOptions(
+        session_secret=session_secret(), google=google_credentials,
+        hooks=ConnectorHooks(added=lambda cfg: sched.add_connector(cfg, ctx), removed=sched.remove_connector),
+    )
+    if not ctx.db.list_app_users():
+        log.warning("nobody can sign in yet: run `hermes auth set-password you@example.com` (or `hermes auth add`)")
+    log.info("scheduled %d connector(s); dashboard at http://127.0.0.1:%d/ (sign-in required)",
+             sum(c.enabled for c in configs), port)
     try:
-        create_app(config_dir, ctx.db, ctx.vault.list_names).run(host="127.0.0.1", port=port, use_reloader=False)
+        create_app(config_dir, ctx.db, ctx.vault.list_names, options).run(
+            host="127.0.0.1", port=port, use_reloader=False)
     finally:
         sched.shutdown(wait=False)
 

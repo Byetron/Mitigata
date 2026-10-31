@@ -43,6 +43,13 @@
   code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem; }
   pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 14px; overflow-x: auto; }
   a { color: var(--accent); }
+  nav { align-items: center; }
+  .signout { display: flex; align-items: center; gap: 8px; margin: 0; }
+  .who { color: var(--muted); font-size: .85rem; max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  button.linklike { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-size: .85rem; cursor: pointer; }
+  button.danger { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 8px; padding: 2px 10px;
+                  font: inherit; font-size: .75rem; cursor: pointer; }
+  button.danger:hover { border-color: var(--bad); color: var(--bad); }
   {% block style %}{% endblock %}
 </style>
 </head>
@@ -53,10 +60,19 @@
       <h1>{% block heading %}{% endblock %}</h1>
       <div class="sub">{% block subtitle %}{% endblock %}</div>
     </div>
+    {% if page != 'login' %}
     <nav>
       <a href="/" class="{{ 'active' if page == 'home' }}">Home</a>
       <a href="/connectors/new" class="{{ 'active' if page == 'new' }}">New connector</a>
+      {% if current_user %}
+      <form method="post" action="/logout" class="signout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <span class="who" title="Signed in">{{ current_user }}</span>
+        <button type="submit" class="linklike">Sign out</button>
+      </form>
+      {% endif %}
     </nav>
+    {% endif %}
   </header>
   {% block content %}{% endblock %}
 </div>

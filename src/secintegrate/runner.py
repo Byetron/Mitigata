@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 import httpx
 
 from .auth import secret_env_names
+from .autoheal import reprocess_quarantine, retry_delay_minutes
 from .classify import FailureCategory, classify_exception
 from .config.schema import ConnectorConfig, Endpoint
 from .health import refresh_connection, should_pause
@@ -45,6 +46,8 @@ class RunResult:
     seconds: float
     category: FailureCategory | None = None
     message: str | None = None
+    retry_in_minutes: int | None = None
+    resolved: int = 0
 
     @property
     def summary(self) -> str:
@@ -188,8 +191,11 @@ def run_connector(
 
     failures = (before.get("consecutive_failures") or 0) + 1 if status == "failed" else 0
     message: str | None = None
+    retry_in = retry_delay_minutes(category, failures)  # transient failures retry on their own
     if category:
         message = human_message(category, ctx)
+        if retry_in:
+            message = f"{message or ''} Hermes will retry automatically in {retry_in} minutes.".strip()
     elif status == "partial":
         ctx.n, ctx.total = totals["bad"], totals["ok"] + totals["bad"]
         message = human_message(FailureCategory.BAD_DATA, ctx)
@@ -198,6 +204,7 @@ def run_connector(
         if last_probe and not last_probe["ok"] and last_probe["category"]:
             ctx.path = cfg.probe.path
             message = human_message(FailureCategory(last_probe["category"]), ctx)
+    resolved = reprocess_quarantine(cfg, db) if status in ("success", "partial") else 0
     refresh_connection(
         db, notifier, cfg.connector,
         last_run_started_at=started, last_run_finished_at=now_iso(),
@@ -206,6 +213,6 @@ def run_connector(
         paused=int(should_pause(category, failures)), message=message,
     )
     result = RunResult(cfg.connector, status, totals["ok"], totals["bad"], totals["pages"], requests, error,
-                       time.monotonic() - began, category, message)
+                       time.monotonic() - began, category, message, retry_in, resolved)
     logger.info(result.summary)
     return result
