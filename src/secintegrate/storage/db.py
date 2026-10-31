@@ -145,6 +145,34 @@ class Database:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def dashboard(self) -> dict[str, Any]:
+        """Non-sensitive aggregates for the home page (no emails, no raw records, no secrets)."""
+        with self.conn() as c:
+            def rows(sql: str) -> list[dict[str, Any]]:
+                return [dict(r) for r in c.execute(sql).fetchall()]
+
+            def one(sql: str) -> int:
+                return int(c.execute(sql).fetchone()[0])
+
+            return {
+                "totals": {
+                    "events": one("SELECT COUNT(*) FROM events"),
+                    "devices": one("SELECT COUNT(*) FROM devices"),
+                    "users": one("SELECT COUNT(*) FROM users"),
+                    "quarantined": one("SELECT COUNT(*) FROM quarantine"),
+                },
+                "by_source": rows(
+                    "SELECT source, COUNT(*) AS n FROM events GROUP BY source ORDER BY n DESC"),
+                "by_severity": rows(
+                    "SELECT COALESCE(severity, 'unknown') AS severity, COUNT(*) AS n FROM events "
+                    "GROUP BY 1 ORDER BY n DESC"),
+                "recent_events": rows(
+                    "SELECT source, id, type, severity, timestamp, description FROM events "
+                    "ORDER BY timestamp DESC LIMIT 8"),
+                "recent_devices": rows(
+                    "SELECT source, id, os, owner, last_seen FROM devices ORDER BY last_seen DESC LIMIT 5"),
+            }
+
     def count(self, table: str) -> int:
         if table not in ALL_TABLES:
             raise ValueError(table)

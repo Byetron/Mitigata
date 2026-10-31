@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="60">
+<title>Security Integration Overview</title>
+<style>
+  :root {
+    --bg: #f4f6f9; --card: #ffffff; --line: #e4e8ee; --text: #18202b; --muted: #64707f;
+    --accent: #2f5bea; --ok: #1a8a47; --warn: #c27c0e; --bad: #d03b3b; --idle: #8a94a3;
+    --sev-critical: #d03b3b; --sev-high: #e2662a; --sev-medium: #d9a114; --sev-low: #3a8fd9; --sev-unknown: #9aa4b2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f141b; --card: #171e28; --line: #263040; --text: #e6ebf2; --muted: #8e9bad;
+      --accent: #6b8cff; --ok: #3ec777; --warn: #e5a93a; --bad: #f06b6b; --idle: #6f7b8c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+  h1 { font-size: 1.5rem; margin: 0; letter-spacing: -.01em; }
+  .sub { color: var(--muted); font-size: .9rem; }
+  nav { display: flex; gap: 8px; }
+  nav a { color: var(--text); text-decoration: none; padding: 6px 14px; border: 1px solid var(--line);
+          border-radius: 8px; background: var(--card); font-size: .9rem; }
+  nav a:hover { border-color: var(--accent); color: var(--accent); }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 28px 0 10px; }
+  .grid { display: grid; gap: 14px; }
+  .stats { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+  .two { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+  .conns { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .stat .label { color: var(--muted); font-size: .8rem; }
+  .stat .value { font-size: 1.9rem; font-weight: 650; line-height: 1.2; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .stat .hint { color: var(--muted); font-size: .8rem; }
+  .card h3 { margin: 0 0 12px; font-size: .95rem; }
+  .bar-row { display: grid; grid-template-columns: 110px 1fr 64px; align-items: center; gap: 10px; margin: 8px 0; font-size: .88rem; }
+  .bar-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .track { background: var(--bg); border-radius: 6px; height: 10px; overflow: hidden; }
+  .fill { height: 100%; border-radius: 6px; background: var(--accent); }
+  .num { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; }
+  .healthy .dot, .dot.healthy { background: var(--ok); } .degraded .dot, .dot.degraded { background: var(--warn); }
+  .failing .dot, .dot.failing { background: var(--bad); } .never_run .dot, .dot.never_run { background: var(--idle); }
+  .conn .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .conn .name { font-weight: 600; word-break: break-word; }
+  .pill { font-size: .72rem; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+  .conn dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 12px 0 0; font-size: .85rem; }
+  .conn dt { color: var(--muted); } .conn dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  .err { margin-top: 10px; font-size: .78rem; color: var(--bad); word-break: break-word; }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  th { text-align: left; color: var(--muted); font-weight: 500; font-size: .78rem; padding: 0 10px 8px 0; }
+  td { padding: 9px 10px 9px 0; border-top: 1px solid var(--line); vertical-align: top; }
+  td.desc { color: var(--muted); }
+  .sev { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: .75rem; color: #fff; background: var(--sev-unknown); }
+  .sev.critical { background: var(--sev-critical); } .sev.high { background: var(--sev-high); }
+  .sev.medium { background: var(--sev-medium); } .sev.low { background: var(--sev-low); }
+  .scroll { overflow-x: auto; }
+  .empty { color: var(--muted); font-size: .9rem; padding: 6px 0; }
+  footer { color: var(--muted); font-size: .8rem; margin-top: 28px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Security Integration Overview</h1>
+      <div class="sub">Data pulled from {{ conns|length }} connectors into one local store. Refreshes every minute.</div>
+    </div>
+    <nav><a href="/">Home</a><a href="/health">Health details</a><a href="/connectors/new">New connector</a></nav>
+  </header>
+
+  <h2>At a glance</h2>
+  <div class="grid stats">
+    <div class="card stat"><div class="label">Events</div><div class="value">{{ '{:,}'.format(data.totals.events) }}</div><div class="hint">advisories, CVEs, breaches</div></div>
+    <div class="card stat"><div class="label">Devices</div><div class="value">{{ '{:,}'.format(data.totals.devices) }}</div><div class="hint">flagged hosts</div></div>
+    <div class="card stat"><div class="label">Users</div><div class="value">{{ '{:,}'.format(data.totals.users) }}</div><div class="hint">directory accounts</div></div>
+    <div class="card stat"><div class="label">Healthy connectors</div><div class="value">{{ counts.healthy }} <span class="sub">/ {{ conns|length }}</span></div>
+      <div class="hint">{{ counts.degraded }} degraded, {{ counts.failing }} failing, {{ counts.never_run }} not run</div></div>
+    <div class="card stat"><div class="label">Quarantined records</div><div class="value">{{ '{:,}'.format(data.totals.quarantined) }}</div><div class="hint">bad records set aside</div></div>
+  </div>
+
+  <h2>Breakdown</h2>
+  <div class="grid two">
+    <div class="card">
+      <h3>Events by severity</h3>
+      {% for r in data.by_severity %}
+        <div class="bar-row"><span class="name">{{ r.severity }}</span>
+          <div class="track"><div class="fill" style="width: {{ r.pct }}%; background: var(--sev-{{ r.severity if r.severity in ['critical','high','medium','low'] else 'unknown' }})"></div></div>
+          <span class="num">{{ '{:,}'.format(r.n) }}</span></div>
+      {% else %}<div class="empty">No events yet.</div>{% endfor %}
+    </div>
+    <div class="card">
+      <h3>Events by source</h3>
+      {% for r in data.by_source %}
+        <div class="bar-row"><span class="name">{{ r.source }}</span>
+          <div class="track"><div class="fill" style="width: {{ r.pct }}%"></div></div>
+          <span class="num">{{ '{:,}'.format(r.n) }}</span></div>
+      {% else %}<div class="empty">No events yet.</div>{% endfor %}
+    </div>
+  </div>
+
+  <h2>Connectors</h2>
+  <div class="grid conns">
+    {% for c in conns %}
+    <div class="card conn {{ c.status }}">
+      <div class="top"><span class="name"><span class="dot"></span>{{ c.connector }}</span>
+        <span class="pill">{{ c.status.replace('_', ' ') }}</span></div>
+      <dl>
+        <dt>Last run</dt><dd>{{ c.last_run_finished_at or 'never' }}</dd>
+        <dt>Records pulled</dt><dd>{{ '{:,}'.format(c.last_records_pulled or 0) }}</dd>
+        <dt>Quarantined</dt><dd>{{ c.last_bad if c.last_bad is not none else '-' }}</dd>
+      </dl>
+      {% if c.last_error %}<div class="err">{{ c.last_error }}</div>{% endif %}
+    </div>
+    {% else %}<div class="card empty">No connectors found in the config directory.</div>{% endfor %}
+  </div>
+
+  <h2>Latest activity</h2>
+  <div class="grid two">
+    <div class="card" style="grid-column: 1 / -1;">
+      <h3>Most recent events</h3>
+      {% if data.recent_events %}
+      <div class="scroll"><table>
+        <thead><tr><th>Severity</th><th>ID</th><th>Type</th><th>Source</th><th>Date</th><th>Description</th></tr></thead>
+        <tbody>
+        {% for e in data.recent_events %}
+          <tr><td><span class="sev {{ e.severity }}">{{ e.severity or 'unknown' }}</span></td>
+              <td>{{ e.id }}</td><td>{{ e.type }}</td><td>{{ e.source }}</td><td>{{ (e.timestamp or '')[:10] }}</td>
+              <td class="desc">{{ (e.description or '')|truncate(110) }}</td></tr>
+        {% endfor %}
+        </tbody></table></div>
+      {% else %}<div class="empty">No events yet. Run a connector to see data here.</div>{% endif %}
+    </div>
+    <div class="card" style="grid-column: 1 / -1;">
+      <h3>Flagged devices</h3>
+      {% if data.recent_devices %}
+      <div class="scroll"><table>
+        <thead><tr><th>IP</th><th>Malware family</th><th>Network owner</th><th>Last seen</th><th>Source</th></tr></thead>
+        <tbody>
+        {% for d in data.recent_devices %}
+          <tr><td>{{ d.id }}</td><td>{{ d.os }}</td><td>{{ d.owner }}</td><td>{{ (d.last_seen or '')[:10] }}</td><td>{{ d.source }}</td></tr>
+        {% endfor %}
+        </tbody></table></div>
+      {% else %}<div class="empty">No devices yet.</div>{% endif %}
+    </div>
+  </div>
+
+  <footer>Only non-sensitive summaries are shown here: no emails, secrets or raw quarantined records.</footer>
+</div>
+</body>
+</html>

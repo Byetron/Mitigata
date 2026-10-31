@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from flask import Flask, redirect, render_template, request
+from flask import Flask, render_template, request
 
 from ..config.loader import config_files, read_yaml
 from ..config.schema import TARGET_FIELDS
@@ -31,7 +31,19 @@ def create_app(config_dir: str | Path, db: Database) -> Flask:
 
     @app.get("/")
     def index():
-        return redirect("/health")
+        _register_connections(config_dir, db)
+        data = db.dashboard()
+        conns = db.health_rows()
+        for c in conns:
+            c["last_error"] = redact(c["last_error"]) if c["last_error"] else ""
+        counts = {s: sum(1 for c in conns if c["status"] == s) for s in ("healthy", "degraded", "failing", "never_run")}
+        top = max([r["n"] for r in data["by_severity"]] or [1])
+        for r in data["by_severity"]:
+            r["pct"] = max(2, round(100 * r["n"] / top))
+        top_src = max([r["n"] for r in data["by_source"]] or [1])
+        for r in data["by_source"]:
+            r["pct"] = max(2, round(100 * r["n"] / top_src))
+        return render_template("home.html", data=data, conns=conns, counts=counts)
 
     @app.get("/health")
     def health():
