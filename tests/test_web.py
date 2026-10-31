@@ -14,4 +14,7 @@ def test_home_shows_summaries_but_not_emails(tmp_path, db):
     assert "CVE-1" in html and "Security Integration Overview" in html
     assert "ann@example.com" not in html
     assert "<b>bad</b>" not in html          # descriptions are escaped
-    assert client.get("/health").status_code == 200
+    assert "Connector health" in html and "Breakdown" not in html
+    assert client.get("/health").headers["Location"].endswith("/")
+    form = client.get("/connectors/new")
+    assert form.status_code == 200 and "Validate and create" in form.get_data(as_text=True)

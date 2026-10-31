@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{% block refresh %}{% endblock %}
+<title>{% block title %}Security Integration{% endblock %}</title>
+<style>
+  :root {
+    --bg: #f4f6f9; --card: #ffffff; --line: #e4e8ee; --text: #18202b; --muted: #64707f;
+    --accent: #2f5bea; --ok: #1a8a47; --warn: #c27c0e; --bad: #d03b3b; --idle: #8a94a3;
+    --sev-critical: #d03b3b; --sev-high: #e2662a; --sev-medium: #d9a114; --sev-low: #3a8fd9; --sev-unknown: #9aa4b2;
+    --err-bg: #fdecec; --err-line: #f2c4c4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f141b; --card: #171e28; --line: #263040; --text: #e6ebf2; --muted: #8e9bad;
+      --accent: #6b8cff; --ok: #3ec777; --warn: #e5a93a; --bad: #f06b6b; --idle: #6f7b8c;
+      --err-bg: #2a1a1d; --err-line: #5a2c32;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+  h1 { font-size: 1.5rem; margin: 0; letter-spacing: -.01em; }
+  .sub { color: var(--muted); font-size: .9rem; }
+  nav { display: flex; gap: 8px; }
+  nav a { color: var(--text); text-decoration: none; padding: 6px 14px; border: 1px solid var(--line);
+          border-radius: 8px; background: var(--card); font-size: .9rem; }
+  nav a:hover, nav a.active { border-color: var(--accent); color: var(--accent); }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 28px 0 10px; }
+  .grid { display: grid; gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .card h3 { margin: 0 0 12px; font-size: .95rem; }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  th { text-align: left; color: var(--muted); font-weight: 500; font-size: .78rem; padding: 0 10px 8px 0; }
+  td { padding: 9px 10px 9px 0; border-top: 1px solid var(--line); vertical-align: top; }
+  .scroll { overflow-x: auto; }
+  .empty { color: var(--muted); font-size: .9rem; padding: 6px 0; }
+  footer { color: var(--muted); font-size: .8rem; margin-top: 28px; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem; }
+  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 14px; overflow-x: auto; }
+  a { color: var(--accent); }
+  {% block style %}{% endblock %}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>{% block heading %}{% endblock %}</h1>
+      <div class="sub">{% block subtitle %}{% endblock %}</div>
+    </div>
+    <nav>
+      <a href="/" class="{{ 'active' if page == 'home' }}">Home</a>
+      <a href="/connectors/new" class="{{ 'active' if page == 'new' }}">New connector</a>
+    </nav>
+  </header>
+  {% block content %}{% endblock %}
+</div>
+</body>
+</html>

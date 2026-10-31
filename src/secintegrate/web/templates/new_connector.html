@@ -1,109 +1,129 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>New connector</title>
-<style>
-  body { font: 15px/1.5 system-ui, sans-serif; margin: 2rem; color: #1b1f24; background: #fafafa; max-width: 56rem; }
-  h1 { font-size: 1.4rem; } h2 { font-size: 1.1rem; margin-top: 2rem; }
-  nav a { margin-right: 1rem; }
-  label { display: block; font-weight: 600; margin-top: .9rem; }
-  input, select { font: inherit; padding: .35rem .5rem; width: 100%; box-sizing: border-box; }
-  .row { display: grid; grid-template-columns: 1fr 2fr 1fr 6rem; gap: .5rem; margin-top: .4rem; }
-  .hint { color: #555; font-size: .85rem; font-weight: 400; }
-  .error { color: #b00020; font-size: .85rem; margin-top: .2rem; }
-  .box { background: #fdecea; border: 1px solid #f5c2c0; padding: .75rem 1rem; margin-top: 1rem; }
-  pre { background: #fff; border: 1px solid #e3e6ea; padding: 1rem; overflow-x: auto; }
-  button { font: inherit; padding: .5rem 1.2rem; margin-top: 1.5rem; }
-</style>
-</head>
-<body>
-<h1>New connector</h1>
-<nav><a href="/health">Health</a><a href="/connectors/new">New connector</a></nav>
+{% extends "base.html" %}
+{% block title %}New connector{% endblock %}
+{% block heading %}New connector{% endblock %}
+{% block subtitle %}Fill in the form to generate a validated connector config. Secret values are never accepted, only env var names.{% endblock %}
 
-{% macro err(name) %}{% if errors.get(name) %}<div class="error">{{ errors[name] }}</div>{% endif %}{% endmacro %}
-{% macro text(name, label, hint='') %}
-  <label for="{{ name }}">{{ label }} <span class="hint">{{ hint }}</span></label>
-  <input id="{{ name }}" name="{{ name }}" value="{{ v[name] }}">{{ err(name) }}
+{% block style %}
+  form { display: grid; gap: 14px; max-width: 860px; }
+  .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 16px; }
+  .field label { display: block; font-size: .82rem; font-weight: 600; margin-bottom: 4px; }
+  .field .hint { display: block; color: var(--muted); font-size: .75rem; font-weight: 400; }
+  input, select { width: 100%; font: inherit; font-size: .9rem; color: var(--text); background: var(--bg);
+                  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .field.bad input, .field.bad select { border-color: var(--bad); }
+  .error { color: var(--bad); font-size: .78rem; margin-top: 4px; }
+  .box { background: var(--err-bg); border: 1px solid var(--err-line); border-radius: 12px; padding: 12px 18px; max-width: 860px; margin-bottom: 14px; }
+  .box ul { margin: 6px 0 0; padding-left: 20px; }
+  .maprow { display: grid; grid-template-columns: 1fr 2fr 1.2fr 110px; gap: 8px; margin-top: 8px; }
+  @media (max-width: 640px) { .maprow { grid-template-columns: 1fr 1fr; } }
+  button { font: inherit; font-weight: 600; color: #fff; background: var(--accent); border: 0; border-radius: 8px;
+           padding: 10px 22px; cursor: pointer; justify-self: start; }
+  button:hover { filter: brightness(1.08); }
+  .ok { max-width: 860px; }
+{% endblock %}
+
+{% macro field(name, label, hint='') %}
+  <div class="field {{ 'bad' if errors.get(name) }}">
+    <label for="{{ name }}">{{ label }}{% if hint %}<span class="hint">{{ hint }}</span>{% endif %}</label>
+    <input id="{{ name }}" name="{{ name }}" value="{{ v[name] }}">
+    {% if errors.get(name) %}<div class="error">{{ errors[name] }}</div>{% endif %}
+  </div>
 {% endmacro %}
 
-{% if result %}
-  <h2>Connector created</h2>
-  <p>Saved to <code>{{ result.path }}</code>. It passed validation and will be scheduled the next time
-     <code>secintegrate serve</code> starts.</p>
-  <pre>{{ result.yaml }}</pre>
-  <p><a href="/health">Go to health page</a></p>
-{% else %}
-{% if general %}<div class="box"><strong>Fix these problems:</strong><ul>
-  {% for g in general %}<li>{{ g }}</li>{% endfor %}</ul></div>{% endif %}
-
-<form method="post" action="/connectors/new">
-  <p class="hint">This form never accepts secret values. Put keys in <code>.env</code> and enter only the variable name.</p>
-
-  <h2>Connector</h2>
-  {{ text('connector_id', 'Connector id', 'lowercase letters, digits, underscores') }}
-  {{ text('source', 'Source label') }}
-  {{ text('base_url', 'Base URL', 'must start with https://') }}
-  {{ text('schedule', 'Schedule', 'five-field cron, e.g. */15 * * * *') }}
-
-  <h2>Authentication</h2>
-  <label for="auth_type">Auth type</label>
-  <select id="auth_type" name="auth_type">
-    {% for t in ['bearer', 'basic', 'api_key_header', 'none'] %}
-      <option value="{{ t }}" {{ 'selected' if v.auth_type == t }}>{{ t }}</option>{% endfor %}
-  </select>{{ err('auth_type') }}
-  {{ text('secret_env', 'Secret env var name', 'e.g. GITHUB_TOKEN (not the secret value)') }}
-  {{ text('username_env', 'Username env var name', 'basic auth only') }}
-  {{ text('header_name', 'Header name', 'api_key_header only') }}
-
-  <h2>Endpoint</h2>
-  {{ text('endpoint_name', 'Endpoint name') }}
-  {{ text('path', 'Path', 'starts with /') }}
-  {{ text('records_path', 'Records path', 'dot path to the list; empty if the response is the list') }}
-
-  <h2>Pagination</h2>
-  <label for="pagination_type">Pagination type</label>
-  <select id="pagination_type" name="pagination_type">
-    {% for t in ['none', 'link_header', 'offset', 'page_number'] %}
-      <option value="{{ t }}" {{ 'selected' if v.pagination_type == t }}>{{ t }}</option>{% endfor %}
-  </select>{{ err('pagination_type') }}
-  {{ text('rel', 'Link rel', 'link_header only, default next') }}
-  {{ text('start_param', 'Start parameter', 'offset only, e.g. startAt') }}
-  {{ text('limit_param', 'Limit parameter', 'offset only, e.g. maxResults') }}
-  {{ text('limit', 'Page size', 'offset only') }}
-  {{ text('total_path', 'Total path', 'offset only, optional, e.g. total') }}
-  {{ text('page_param', 'Page parameter', 'page_number only, e.g. page') }}
-  {{ text('page_start', 'First page number', 'page_number only, default 1') }}
-
-  <h2>Mapping</h2>
-  <label for="mapping_target">Common schema target</label>
-  <select id="mapping_target" name="mapping_target">
-    {% for t in targets %}<option value="{{ t }}" {{ 'selected' if v.mapping_target == t }}>{{ t }}</option>{% endfor %}
-  </select>{{ err('mapping_target') }}
-  <p class="hint">
-    user: {{ targets['user']|join(', ') }}<br>
-    device: {{ targets['device']|join(', ') }}<br>
-    event: {{ targets['event']|join(', ') }}
-  </p>
-  {{ err('mapping') }}
-  {% for r in v.rows %}
-  <div class="row">
-    <input name="map_target_{{ loop.index0 }}" placeholder="target field" value="{{ r.target }}">
-    <input name="map_source_{{ loop.index0 }}" placeholder="source path, e.g. cve.id" value="{{ r.source }}">
-    <select name="map_transform_{{ loop.index0 }}">
-      <option value="">no transform</option>
-      {% for t in transforms %}<option value="{{ t }}" {{ 'selected' if r.transform == t }}>{{ t }}</option>{% endfor %}
+{% macro choice(name, label, options) %}
+  <div class="field {{ 'bad' if errors.get(name) }}">
+    <label for="{{ name }}">{{ label }}</label>
+    <select id="{{ name }}" name="{{ name }}">
+      {% for o in options %}<option value="{{ o }}" {{ 'selected' if v[name] == o }}>{{ o }}</option>{% endfor %}
     </select>
-    <select name="map_required_{{ loop.index0 }}">
-      <option value="no">optional</option>
-      <option value="yes" {{ 'selected' if r.required }}>required</option>
-    </select>
+    {% if errors.get(name) %}<div class="error">{{ errors[name] }}</div>{% endif %}
   </div>
-  {% endfor %}
+{% endmacro %}
 
-  <button type="submit">Validate and create</button>
-</form>
+{% block content %}
+{% if result %}
+  <div class="card ok">
+    <h3>Connector created</h3>
+    <p>Saved to <code>{{ result.path }}</code>. It passed validation and is scheduled the next time
+       <code>secintegrate serve</code> starts.</p>
+    <pre>{{ result.yaml }}</pre>
+    <p><a href="/">Back to home</a></p>
+  </div>
+{% else %}
+  {% if general %}<div class="box"><strong>Fix these problems</strong><ul>
+    {% for g in general %}<li>{{ g }}</li>{% endfor %}</ul></div>{% endif %}
+
+  <form method="post" action="/connectors/new">
+    <div class="card">
+      <h3>Connector</h3>
+      <div class="fields">
+        {{ field('connector_id', 'Connector id', 'lowercase letters, digits, underscores') }}
+        {{ field('source', 'Source label') }}
+        {{ field('base_url', 'Base URL', 'must start with https://') }}
+        {{ field('schedule', 'Schedule', 'five-field cron, e.g. */15 * * * *') }}
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Authentication</h3>
+      <div class="fields">
+        {{ choice('auth_type', 'Auth type', ['bearer', 'basic', 'api_key_header', 'none']) }}
+        {{ field('secret_env', 'Secret env var name', 'e.g. GITHUB_TOKEN, not the value') }}
+        {{ field('username_env', 'Username env var name', 'basic auth only') }}
+        {{ field('header_name', 'Header name', 'api_key_header only') }}
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Endpoint</h3>
+      <div class="fields">
+        {{ field('endpoint_name', 'Endpoint name') }}
+        {{ field('path', 'Path', 'starts with /') }}
+        {{ field('records_path', 'Records path', 'empty if the response is the list') }}
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Pagination</h3>
+      <div class="fields">
+        {{ choice('pagination_type', 'Pagination type', ['none', 'link_header', 'offset', 'page_number']) }}
+        {{ field('rel', 'Link rel', 'link_header only, default next') }}
+        {{ field('start_param', 'Start parameter', 'offset only, e.g. offset') }}
+        {{ field('limit_param', 'Limit parameter', 'offset only, e.g. limit') }}
+        {{ field('limit', 'Page size', 'offset only') }}
+        {{ field('total_path', 'Total path', 'offset only, optional') }}
+        {{ field('page_param', 'Page parameter', 'page_number only') }}
+        {{ field('page_start', 'First page number', 'page_number only, default 1') }}
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Mapping</h3>
+      <div class="fields">{{ choice('mapping_target', 'Common schema target', targets.keys()|list) }}</div>
+      <p class="sub" style="margin:10px 0 0">
+        user: {{ targets['user']|join(', ') }}<br>
+        device: {{ targets['device']|join(', ') }}<br>
+        event: {{ targets['event']|join(', ') }}
+      </p>
+      {% if errors.get('mapping') %}<div class="error">{{ errors['mapping'] }}</div>{% endif %}
+      {% for r in v.rows %}
+      <div class="maprow">
+        <input name="map_target_{{ loop.index0 }}" placeholder="target field" value="{{ r.target }}">
+        <input name="map_source_{{ loop.index0 }}" placeholder="source path, e.g. cve.id" value="{{ r.source }}">
+        <select name="map_transform_{{ loop.index0 }}">
+          <option value="">no transform</option>
+          {% for t in transforms %}<option value="{{ t }}" {{ 'selected' if r.transform == t }}>{{ t }}</option>{% endfor %}
+        </select>
+        <select name="map_required_{{ loop.index0 }}">
+          <option value="no">optional</option>
+          <option value="yes" {{ 'selected' if r.required }}>required</option>
+        </select>
+      </div>
+      {% endfor %}
+    </div>
+
+    <button type="submit">Validate and create</button>
+  </form>
 {% endif %}
-</body>
-</html>
+{% endblock %}

@@ -161,11 +161,6 @@ class Database:
                     "users": one("SELECT COUNT(*) FROM users"),
                     "quarantined": one("SELECT COUNT(*) FROM quarantine"),
                 },
-                "by_source": rows(
-                    "SELECT source, COUNT(*) AS n FROM events GROUP BY source ORDER BY n DESC"),
-                "by_severity": rows(
-                    "SELECT COALESCE(severity, 'unknown') AS severity, COUNT(*) AS n FROM events "
-                    "GROUP BY 1 ORDER BY n DESC"),
                 "recent_events": rows(
                     "SELECT source, id, type, severity, timestamp, description FROM events "
                     "ORDER BY timestamp DESC LIMIT 8"),

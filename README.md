@@ -25,11 +25,11 @@ secintegrate db reset --yes
 pytest
 ```
 
-Web UI: `/health` (refreshes every 30 s) and `/connectors/new` (B5 form; it only accepts env var names).
+Web UI: `/` is the home dashboard with connector health (refreshes every 30 s) and `/connectors/new` is the
+B5 form (it only accepts env var names). `/health` redirects to `/`.
 
 ## Before the first live run
 
-- `github_members.yaml`: replace `YOUR_ORG_LOGIN` with an org your token belongs to.
 - `validate` reports unset env var names. `serve` skips configs that fail schema validation and `run`
   refuses to start on an invalid config.
 - Keyless connectors (`cisa_kev`, `feodo_c2`, `epss_high_risk`, `hibp_breaches`) work with no setup.

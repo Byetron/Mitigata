@@ -91,7 +91,7 @@ def serve(port: int = typer.Option(8000, "--port"), config_dir: Path = CONFIG_DI
         configs.append(cfg)
     sched = build_scheduler(configs, db)
     sched.start()
-    log.info("scheduled %d connector(s); health page at http://localhost:%d/health",
+    log.info("scheduled %d connector(s); dashboard at http://localhost:%d/",
              sum(c.enabled for c in configs), port)
     try:
         create_app(config_dir, db).run(host="127.0.0.1", port=port, use_reloader=False)
