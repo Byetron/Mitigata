@@ -305,7 +305,7 @@ def test_remove_moves_the_config_to_trash_and_clears_state(tmp_path: Path, db: D
     assert not (tmp_path / "cfg" / "yaml_demo.yaml").exists()
     assert len(list((tmp_path / "cfg" / ".trash").glob("yaml_demo-*.yaml"))) == 1  # recoverable
     assert db.get_connection("yaml_demo") is None and db.latest_probe("yaml_demo") is None
-    assert db.get_cursor("yaml_demo", "e") is None and db.count("events") == 1  # records are kept
+    assert db.get_cursor("yaml_demo", "e") is None and db.count("events") == 0  # and its records
     assert removed == ["yaml_demo"]
     assert "yaml_demo" not in client.get("/").get_data(as_text=True)
 

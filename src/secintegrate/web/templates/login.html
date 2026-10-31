@@ -30,20 +30,21 @@
   <div class="card">
     <form id="login-form" method="post" action="/login?next={{ next|urlencode }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="check field">
-        <label for="captcha">{{ question }} <span class="hint">Answer this first. It is needed to sign in, with or without Google.</span></label>
-        <input id="captcha" name="captcha" inputmode="numeric" autocomplete="off" maxlength="3" required autofocus>
-      </div>
       <div class="trap" aria-hidden="true"><label>Leave this empty <input name="website" tabindex="-1" autocomplete="off"></label></div>
-      {% if google_enabled %}
-        <button class="btn google" type="submit" formaction="/auth/google" formnovalidate data-google>Sign in with Google</button>
-        <div class="or">or sign in with a password</div>
-      {% endif %}
       <div class="field"><label for="email">Email</label>
-        <input id="email" name="email" type="email" autocomplete="username" required></div>
+        <input id="email" name="email" type="email" autocomplete="username" required autofocus></div>
       <div class="field"><label for="password">Password</label>
         <input id="password" name="password" type="password" autocomplete="current-password" required></div>
+      {# The Sign in button must stay FIRST: the browser uses the first button when Enter is pressed in a field. #}
       <button class="btn" type="submit">Sign in</button>
+      {% if google_enabled %}
+        <div class="or">or</div>
+        <button class="btn google" type="submit" formaction="/auth/google" formnovalidate data-google>Sign in with Google</button>
+      {% endif %}
+      <div class="check field" style="margin-top:16px">
+        <label for="captcha">{{ question }} <span class="hint">Answer this to sign in, with a password or with Google.</span></label>
+        <input id="captcha" name="captcha" inputmode="numeric" autocomplete="off" maxlength="3" required>
+      </div>
     </form>
   </div>
   {% if not google_enabled %}

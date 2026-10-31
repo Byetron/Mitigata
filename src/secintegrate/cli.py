@@ -128,15 +128,16 @@ def template(out: Path | None = typer.Option(None, "--out", help="Write to a fil
 def remove(connector: str = typer.Argument(..., help="Connector id to remove."),
            yes: bool = typer.Option(False, "--yes", help="Skip confirmation."),
            config_dir: Path = CONFIG_DIR, db_path: Path | None = DB_OPTION, user: str | None = USER_OPTION) -> None:
-    """Remove a connector. Its config goes to .trash, its health history is cleared, fetched records are kept."""
+    """Remove a connector. Its config goes to .trash; its health history and fetched records are deleted."""
     if not yes:
         typer.confirm(f"Remove {connector}?", abort=True)
     ctx = workspace_app(user, config_dir, db_path)
-    moved = remove_connector(ctx.config_dir, ctx.db, connector)
-    if moved is None:
+    removed = remove_connector(ctx.config_dir, ctx.db, connector)
+    if removed is None:
         typer.echo(f"No connector '{connector}' found in {ctx.config_dir}.")
         raise typer.Exit(2)
-    typer.echo(f"Removed {connector}. Its config was kept at {moved}.")
+    typer.echo(f"Removed {connector} and deleted {removed.records} fetched record(s). "
+               f"Its config was kept at {removed.config}.")
 
 
 @app.command()
@@ -193,9 +194,7 @@ def serve(port: int = typer.Option(8000, "--port"), config_dir: Path = CONFIG_DI
 
     def connector_added(email: str, cfg: ConnectorConfig) -> None:
         workspace = manager.app_for(email) if email else system
-        sched.add_connector(cfg, workspace, scheduler_owner(email))
-        # fetch data now, not at the next cron time
-        schedule_first_runs(sched, [cfg], workspace, scheduler_owner(email))
+        sched.add_and_fetch(cfg, workspace, scheduler_owner(email))  # data is fetched now, not at the next cron time
 
     def session_secret() -> str:
         try:

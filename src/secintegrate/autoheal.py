@@ -51,7 +51,7 @@ def reprocess_quarantine(cfg: ConnectorConfig, db: Database, limit: int = QUARAN
             continue
         if mapped.get("id") in (None, ""):
             continue
-        db.upsert(ep.mapping.target, cfg.source, [mapped], now_iso())
+        db.upsert(ep.mapping.target, cfg.source, [mapped], now_iso(), cfg.connector)
         db.delete_quarantine(row["id"])
         resolved += 1
     if resolved:

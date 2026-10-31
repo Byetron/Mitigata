@@ -56,9 +56,10 @@ Anyone who can reach the dashboard can create an account on the sign-in page: **
 Google**. There is no approval step.
 
 **A small maths question guards every way in.** The sign-in and sign-up pages both show a question such as "What is 7
-plus 5?" at the top, and the answer is required by all three buttons: **Sign in**, **Create account**, and the **Google**
-button. Google is a form button rather than a link, so it cannot be started without the answer (a wrong or empty answer
-returns to the page with a message and a new question). The answer is checked before the password is looked at, so a wrong
+plus 5?" at the bottom of the form, below the buttons, and the answer is required by all three: **Sign in** (or **Create
+account**) and the **Google** button below it. Google is a form button rather than a link, so it only starts when you click
+it, and never without the answer (a wrong or empty answer returns to the page with a message and a new question). Pressing
+Enter in the email or password box always uses the main button, never Google. The answer is checked before the password is looked at, so a wrong
 answer reveals nothing about whether a password was right. A hidden trap field catches simple programs, and wrong answers
 count toward the same limit as wrong passwords. This stops casual bots, not a determined attacker, so keep Hermes on
 `127.0.0.1`, where only people on this computer can reach it. Coming back from Google needs no second question.
@@ -110,8 +111,9 @@ prints it and `hermes template --out config/connectors/mine.yaml` writes it. Opt
 a health check, other logins) are in [docs/connector-options.md](docs/connector-options.md).
 
 **Removing a connector.** Press **Remove** on its card, or run `hermes remove NAME`. The config moves to
-`config/connectors/.trash/` (copy it back to restore), its health history, probes and cursor are cleared, and fetched
-records are kept. A running `hermes serve` picks up added and removed connectors without a restart.
+`config/connectors/.trash/` (copy it back to restore), its health history, probes and cursor are cleared, and every record it fetched is
+deleted too. A running `hermes serve` picks up added and removed connectors without a restart.
+Adding a connector does the opposite: its first data is fetched about a second later and appears on the home page.
 
 ## Automatic recovery
 

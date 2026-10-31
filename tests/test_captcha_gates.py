@@ -1,6 +1,7 @@
 """The captcha question must be answered to sign in, to create an account, and to start Google sign-in."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -129,3 +130,39 @@ def test_coming_back_from_google_needs_no_second_question(tmp_path: Path, db: Da
     state = parse_qs(urlparse(start_google(client)).query)["state"][0]
     response = client.get(f"/auth/callback?state={state}&code=abc")  # Google's redirect carries no form to answer
     assert response.status_code == 302 and response.headers["Location"] == "/"
+
+
+# --- page layout: Enter in a field must never start Google ---------------------------------------------------
+def buttons(page: str) -> list[str]:
+    """The submit buttons in the page's form, in the order the browser sees them."""
+    return re.findall(r"<button[^>]*>.*?</button>", page, re.S)
+
+
+def test_the_main_button_comes_first_so_enter_never_starts_google(tmp_path: Path, db: Database) -> None:
+    client = make_client(tmp_path, db)
+    for path, main, google in (("/login", "Sign in", "Sign in with Google"),
+                               ("/signup", "Create account", "Continue with Google")):
+        page = client.get(path).get_data(as_text=True)
+        found = buttons(page)
+        assert [re.sub(r"<[^>]+>|\s+", " ", b).strip() for b in found] == [main, google]
+        assert "formaction" not in found[0]  # the default button (used by the Enter key) posts to this page
+        assert 'formaction="/auth/google"' in found[1]
+
+
+def test_the_page_order_is_fields_then_main_button_then_google_then_the_question(tmp_path: Path,
+                                                                                 db: Database) -> None:
+    client = make_client(tmp_path, db)
+    for path, main, google in (("/login", ">Sign in</button>", ">Sign in with Google</button>"),
+                               ("/signup", ">Create account</button>", ">Continue with Google</button>")):
+        page = client.get(path).get_data(as_text=True)
+        order = [page.index('name="email"'), page.index('type="password"'), page.index(main),
+                 page.index(google), page.index('name="captcha"')]
+        assert order == sorted(order), f"{path}: elements are not in the expected order"
+
+
+def test_pressing_enter_signs_in_with_a_password_and_never_contacts_google(tmp_path: Path, db: Database) -> None:
+    """Enter submits the form with its default (first) button, which is the password sign-in."""
+    client = with_account(tmp_path, db)
+    response = attempt(client, EMAIL, PASSWORD)  # exactly what the first button posts
+    assert response.status_code == 302 and response.headers["Location"] == "/"
+    assert "google.com" not in response.headers["Location"]

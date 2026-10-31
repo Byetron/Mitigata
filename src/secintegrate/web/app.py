@@ -103,6 +103,10 @@ def create_app(config_dir: str | Path, db: Database, secret_names: SecretNames |
         if opts.hooks is not None:
             opts.hooks.added(owner(), parse_config(path))  # the running scheduler picks it up without a restart
 
+    def fetching() -> str:
+        """"yes" when the running scheduler will fetch the new connector's data by itself right away."""
+        return "yes" if opts.hooks is not None else ""
+
     @app.get("/")
     def index() -> str:
         c = ctx()
@@ -176,7 +180,7 @@ def create_app(config_dir: str | Path, db: Database, secret_names: SecretNames |
             return render_form(values, issues, status=400)
         path = write_connector(c.config_dir, values["connector_id"], text)
         announce(c, path, values["connector_id"])
-        return render_form(values, issues, result={"yaml": text, "path": str(path)})
+        return render_form(values, issues, result={"yaml": text, "path": str(path), "fetching": fetching()})
 
     @app.post("/connectors/validate-yaml")
     def validate_yaml() -> Response:
@@ -196,7 +200,7 @@ def create_app(config_dir: str | Path, db: Database, secret_names: SecretNames |
             return render_form(forms.default_values(), status=400, tab="yaml", yaml_text=text, yaml_issues=issues)
         path = write_connector(c.config_dir, cfg.connector, text if text.endswith("\n") else text + "\n")
         announce(c, path, cfg.connector)
-        return render_form(forms.default_values(), issues, result={"yaml": text, "path": str(path)}, tab="yaml",
-                           yaml_text=text)
+        return render_form(forms.default_values(), issues,
+                           result={"yaml": text, "path": str(path), "fetching": fetching()}, tab="yaml", yaml_text=text)
 
     return app

@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 RECHECK_JOB = "auth_recheck"
 FIRST_RUN_DELAY_SECONDS = 5
 FIRST_RUN_SPACING_SECONDS = 4
+ADDED_RUN_DELAY_SECONDS = 1  # a connector someone just added is fetched almost at once
 
 
 def _jid(owner: str, name: str) -> str:
@@ -45,6 +46,14 @@ class HermesScheduler(BackgroundScheduler):  # type: ignore[misc]
     def add_connector(self, cfg: ConnectorConfig, app: App, owner: str = "") -> None:
         self.entries[(owner, cfg.connector)] = (cfg, app)
         add_connector_jobs(self, cfg, app, owner)
+
+    def add_and_fetch(self, cfg: ConnectorConfig, app: App, owner: str = "") -> bool:
+        """Start running a newly added connector and fetch its first data about a second from now.
+
+        Returns False when nothing was scheduled (a disabled connector, or one that has already run).
+        """
+        self.add_connector(cfg, app, owner)
+        return bool(schedule_first_runs(self, [cfg], app, owner, delay=ADDED_RUN_DELAY_SECONDS))
 
     def remove_connector(self, connector: str, owner: str = "") -> None:
         self.entries.pop((owner, connector), None)
@@ -110,7 +119,7 @@ def remove_connector_jobs(sched: BackgroundScheduler, connector: str, owner: str
 
 
 def schedule_first_runs(sched: HermesScheduler, configs: Iterable[ConnectorConfig], app: App,
-                        owner: str = "") -> list[str]:
+                        owner: str = "", delay: int = FIRST_RUN_DELAY_SECONDS) -> list[str]:
     """Run every enabled connector that has never run, once, a few seconds after start-up.
 
     Without this a new install shows an empty dashboard until each connector's next cron time (which can be a day
@@ -121,8 +130,8 @@ def schedule_first_runs(sched: HermesScheduler, configs: Iterable[ConnectorConfi
         connection = app.db.get_connection(cfg.connector)
         if not cfg.enabled or (connection is not None and connection["status"] != "never_run"):
             continue
-        delay = FIRST_RUN_DELAY_SECONDS + FIRST_RUN_SPACING_SECONDS * len(started)
-        sched.add_job(_run_job, DateTrigger(run_date=datetime.now(UTC) + timedelta(seconds=delay)),
+        wait = delay + FIRST_RUN_SPACING_SECONDS * len(started)
+        sched.add_job(_run_job, DateTrigger(run_date=datetime.now(UTC) + timedelta(seconds=wait)),
                       args=[cfg, app, sched, owner], id=_jid(owner, f"{cfg.connector}__first"),
                       replace_existing=True, misfire_grace_time=300)
         started.append(cfg.connector)

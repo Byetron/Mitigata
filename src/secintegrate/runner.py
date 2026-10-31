@@ -108,7 +108,7 @@ def _process_page(cfg: ConnectorConfig, ep: Endpoint, records: list[Any], state:
         raise FetchError(FailureCategory.SCHEMA_CHANGED, "required field missing from every record on a page",
                          field=bad[0][2].field)
     _quarantine(db, run_id, cfg, ep, bad, totals)
-    db.upsert(ep.mapping.target, cfg.source, good, now_iso())  # commit per page
+    db.upsert(ep.mapping.target, cfg.source, good, now_iso(), cfg.connector)  # commit per page
     totals["ok"] += len(good)
 
 

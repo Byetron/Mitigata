@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
   email       TEXT,
   status      TEXT,
   last_login  TEXT,
+  connector   TEXT,
   fetched_at  TEXT NOT NULL,
   PRIMARY KEY (source, id)
 );
@@ -17,6 +18,7 @@ CREATE TABLE IF NOT EXISTS devices (
   os          TEXT,
   owner       TEXT,
   last_seen   TEXT,
+  connector   TEXT,
   fetched_at  TEXT NOT NULL,
   PRIMARY KEY (source, id)
 );
@@ -28,6 +30,7 @@ CREATE TABLE IF NOT EXISTS events (
   severity    TEXT,
   timestamp   TEXT,
   description TEXT,
+  connector   TEXT,
   fetched_at  TEXT NOT NULL,
   PRIMARY KEY (source, id)
 );

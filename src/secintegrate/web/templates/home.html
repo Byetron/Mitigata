@@ -69,7 +69,7 @@
       </div>
       {% if c.message %}<div class="err">{{ c.message }}</div>{% endif %}
       <form method="post" action="/connectors/{{ c.connector }}/delete" class="remove"
-            onsubmit="return confirm('Remove {{ c.connector }}? Its config moves to .trash and its health history is cleared. Fetched records are kept.');">
+            onsubmit="return confirm('Remove {{ c.connector }}? Its config moves to .trash, and its health history and every record it fetched are deleted.');">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="danger">Remove</button>
       </form>

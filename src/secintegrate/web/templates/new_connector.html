@@ -70,6 +70,8 @@
     <h3>Connector created</h3>
     <p>Saved to <code>{{ result.path }}</code>. It passed validation and is scheduled the next time
        <code>hermes serve</code> starts.</p>
+    {% if result.fetching %}<p><strong>Fetching its first records now.</strong> They will appear on the
+       <a href="/">home page</a> in a few seconds, and invalid records are set aside rather than shown.</p>{% endif %}
     <pre>{{ result.yaml }}</pre>
     {% for i in general %}<div class="issue {{ i.severity }}">{{ i.message }}</div>{% endfor %}
     <p><a href="/">Back to home</a></p>

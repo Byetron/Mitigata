@@ -61,6 +61,9 @@ class Database:
             if "status" not in user_cols:
                 c.execute("ALTER TABLE app_users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
             c.execute("UPDATE app_users SET status='active' WHERE status != 'active'")  # approval was removed
+            for table in ("users", "devices", "events"):  # older databases did not record which connector fetched a row
+                if "connector" not in {row["name"] for row in c.execute(f"PRAGMA table_info({table})")}:
+                    c.execute(f"ALTER TABLE {table} ADD COLUMN connector TEXT")
 
     def reset(self) -> None:
         with self.conn() as c:
@@ -69,17 +72,19 @@ class Database:
         self.init()
 
     # --- common schema -------------------------------------------------
-    def upsert(self, target: str, source: str, rows: list[dict[str, Any]], fetched_at: str) -> None:
+    def upsert(self, target: str, source: str, rows: list[dict[str, Any]], fetched_at: str,
+               connector: str | None = None) -> None:
+        """Save rows. `connector` records who fetched them, so removing that connector can remove them."""
         if not rows:
             return
         table, cols = TABLES[target]
-        names = ["source", "id", *cols, "fetched_at"]
-        updates = ", ".join(f"{c}=excluded.{c}" for c in [*cols, "fetched_at"])
+        names = ["source", "id", *cols, "connector", "fetched_at"]
+        updates = ", ".join(f"{c}=excluded.{c}" for c in [*cols, "connector", "fetched_at"])
         sql = (
             f"INSERT INTO {table} ({', '.join(names)}) VALUES ({', '.join('?' * len(names))}) "  # noqa: S608
             f"ON CONFLICT(source, id) DO UPDATE SET {updates}"
         )
-        data = [(source, str(r["id"]), *[r.get(c) for c in cols], fetched_at) for r in rows]
+        data = [(source, str(r["id"]), *[r.get(c) for c in cols], connector, fetched_at) for r in rows]
         with self.conn() as c:
             c.executemany(sql, data)
 
@@ -147,8 +152,23 @@ class Database:
         with self.conn() as c:
             c.execute("DELETE FROM quarantine WHERE id=?", (row_id,))
 
+    def delete_connector_data(self, connector: str, source: str | None, source_shared: bool) -> int:
+        """Delete the records a connector fetched. Returns how many rows went.
+
+        Rows are matched by the connector that wrote them. Older rows carry no connector, so they go only when the
+        connector's source label belongs to it alone; if another connector uses the same label they are left alone.
+        """
+        deleted = 0
+        with self.conn() as c:
+            for table in ("users", "devices", "events"):
+                deleted += c.execute(f"DELETE FROM {table} WHERE connector=?", (connector,)).rowcount  # noqa: S608
+                if source and not source_shared:
+                    deleted += c.execute(
+                        f"DELETE FROM {table} WHERE connector IS NULL AND source=?", (source,)).rowcount  # noqa: S608
+        return deleted
+
     def delete_connector_state(self, connector: str) -> None:
-        """Forget a removed connector's health, history, probes and cursor. Fetched records are kept."""
+        """Forget a removed connector's health, history, probes and cursor."""
         with self.conn() as c:
             for table in ("connections", "runs", "quarantine", "sync_state", "probes"):
                 c.execute(f"DELETE FROM {table} WHERE connector=?", (connector,))  # noqa: S608

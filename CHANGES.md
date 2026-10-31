@@ -167,3 +167,17 @@ Tests are in `tests/test_autoheal.py` and `tests/test_web_auth.py`.
   from (`/login` or `/signup`) with a message; the question is single use and the answer is checked before the password.
 - Wrong answers count toward the sign-in limit (5 per 10 minutes per address). The Google callback needs no question.
 - Before this, the question existed only on the sign-up form, so the other three entry points were unguarded.
+
+### Page order, records follow their connector (`tests/test_connector_data.py`, `tests/test_captcha_gates.py`)
+
+- **Sign-in and sign-up layout:** email, password, the main button, then the Google button, then the maths question. The
+  main button is deliberately the first button in the form. Browsers use the first button when Enter is pressed in a field, and
+  the Google button used to come first, so Enter could start Google instead of signing in with the password. Tests check the
+  order of the buttons and fields in the page.
+- **Removing a connector deletes the records it fetched.** Every saved record now carries the connector that wrote it
+  (`connector` column, added to older databases automatically). Removal deletes that connector's records, plus older untagged
+  records when the connector was the only one using their `source` label; if another connector uses the same label those older
+  records are kept. Health history, probes and cursor are cleared as before and the config still goes to `.trash`.
+- **Adding a connector fetches its data at once** (about a second later instead of five), the page says so, and invalid
+  records are set aside instead of shown. Removing a connector and adding it back refetches everything.
+- A connector removed under the old behaviour (`hibp_breaches`) had left 1,048 records behind; they were deleted by hand.
