@@ -145,11 +145,14 @@ class Database:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def dashboard(self) -> dict[str, Any]:
-        """Non-sensitive aggregates for the home page (no emails, no raw records, no secrets)."""
+    def dashboard(self, source: str | None = None) -> dict[str, Any]:
+        """Non-sensitive aggregates for the home page (no emails, no raw records, no secrets).
+
+        `source` filters the recent-events list to one connector's source.
+        """
         with self.conn() as c:
-            def rows(sql: str) -> list[dict[str, Any]]:
-                return [dict(r) for r in c.execute(sql).fetchall()]
+            def rows(sql: str, params: tuple = ()) -> list[dict[str, Any]]:
+                return [dict(r) for r in c.execute(sql, params).fetchall()]
 
             def one(sql: str) -> int:
                 return int(c.execute(sql).fetchone()[0])
@@ -161,9 +164,13 @@ class Database:
                     "users": one("SELECT COUNT(*) FROM users"),
                     "quarantined": one("SELECT COUNT(*) FROM quarantine"),
                 },
+                "event_sources": rows(
+                    "SELECT source, COUNT(*) AS n FROM events GROUP BY source ORDER BY source"),
                 "recent_events": rows(
                     "SELECT source, id, type, severity, timestamp, description FROM events "
-                    "ORDER BY timestamp DESC LIMIT 8"),
+                    + ("WHERE source = ? " if source else "")
+                    + "ORDER BY timestamp DESC LIMIT 10",
+                    (source,) if source else ()),
                 "recent_devices": rows(
                     "SELECT source, id, os, owner, last_seen FROM devices ORDER BY last_seen DESC LIMIT 5"),
             }

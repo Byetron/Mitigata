@@ -32,13 +32,18 @@ def create_app(config_dir: str | Path, db: Database) -> Flask:
     @app.get("/")
     def index():
         _register_connections(config_dir, db)
-        data = db.dashboard()
+        source = request.args.get("source") or None
+        data = db.dashboard(source)
+        if source not in {s["source"] for s in data["event_sources"]}:
+            source = None  # unknown filter: fall back to all events
+            data = db.dashboard()
         configured = existing_ids(config_dir)
         conns = [c for c in db.health_rows() if c["connector"] in configured]  # hide removed connectors
         for c in conns:
             c["last_error"] = redact(c["last_error"]) if c["last_error"] else ""
         counts = {s: sum(1 for c in conns if c["status"] == s) for s in ("healthy", "degraded", "failing", "never_run")}
-        return render_template("home.html", data=data, conns=conns, counts=counts, page="home")
+        return render_template("home.html", data=data, conns=conns, counts=counts, page="home",
+                               source=source)
 
     @app.get("/health")
     def health():

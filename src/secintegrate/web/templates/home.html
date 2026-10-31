@@ -21,6 +21,12 @@
   .err { margin-top: 10px; padding: 8px 10px; font-size: .78rem; color: var(--bad); background: var(--err-bg);
          border: 1px solid var(--err-line); border-radius: 8px; word-break: break-word; }
   td.desc { color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: -2px 0 14px; }
+  .chip { font-size: .8rem; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line);
+          color: var(--text); text-decoration: none; background: var(--bg); }
+  .chip:hover { border-color: var(--accent); }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip .count { opacity: .7; margin-left: 4px; font-variant-numeric: tabular-nums; }
   .sev { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: .75rem; color: #fff; background: var(--sev-unknown); }
   .sev.critical { background: var(--sev-critical); } .sev.high { background: var(--sev-high); }
   .sev.medium { background: var(--sev-medium); } .sev.low { background: var(--sev-low); }
@@ -55,8 +61,15 @@
 
   <h2>Latest activity</h2>
   <div class="grid">
-    <div class="card">
-      <h3>Most recent events</h3>
+    <div class="card" id="events">
+      <h3>Most recent events{% if source %} <span class="sub">from {{ source }}</span>{% endif %}</h3>
+      <div class="chips">
+        <a href="/#events" class="chip {{ 'on' if not source }}">All</a>
+        {% for s in data.event_sources %}
+          <a href="/?source={{ s.source|urlencode }}#events" class="chip {{ 'on' if source == s.source }}">{{ s.source }}
+            <span class="count">{{ '{:,}'.format(s.n) }}</span></a>
+        {% endfor %}
+      </div>
       {% if data.recent_events %}
       <div class="scroll"><table>
         <thead><tr><th>Severity</th><th>ID</th><th>Type</th><th>Source</th><th>Date</th><th>Description</th></tr></thead>
