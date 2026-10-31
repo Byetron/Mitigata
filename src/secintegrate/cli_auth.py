@@ -46,6 +46,17 @@ def auth_set_password(email: str = typer.Argument(..., help="Account to create o
     typer.echo(f"Password set for {address}.")
 
 
+@auth_app.command("approve")
+def auth_approve(email: str = typer.Argument(..., help="A pending account to approve."),
+                 db_path: Path | None = DB_OPTION) -> None:
+    """Approve someone who created an account on the sign-in page."""
+    address = _email(email)
+    if not Database(resolve_db(db_path)).approve_app_user(address):
+        typer.echo(f"{address} has no pending request.")
+        raise typer.Exit(1)
+    typer.echo(f"{address} can now sign in.")
+
+
 @auth_app.command("list")
 def auth_list(db_path: Path | None = DB_OPTION) -> None:
     """List who may sign in. Passwords are never shown."""
@@ -56,7 +67,7 @@ def auth_list(db_path: Path | None = DB_OPTION) -> None:
         return
     for user in users:
         how = "google + password" if user["has_password"] else "google only"
-        typer.echo(f"{user['email']:<32} {how:<18} added {user['added_at']}")
+        typer.echo(f"{user['email']:<32} {user['status']:<8} {how:<18} added {user['added_at']}")
 
 
 @auth_app.command("remove")
@@ -67,4 +78,4 @@ def auth_remove(email: str = typer.Argument(..., help="Account to remove."),
     if not Database(resolve_db(db_path)).remove_app_user(address):
         typer.echo(f"{address} was not on the list.")
         raise typer.Exit(1)
-    typer.echo(f"Removed {address}. Their current session ends when it expires or Hermes restarts.")
+    typer.echo(f"Removed {address}. They are signed out on their next click.")

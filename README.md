@@ -52,18 +52,22 @@ pytest ; ruff check src tests ; mypy
 
 ## Signing in
 
-The dashboard needs a sign-in. Nobody can sign in until you allow someone, so run this once:
+The dashboard needs a sign-in. The easiest start is the **Create account** link on the sign-in page: **the first
+account created gets in straight away**, and **every later account waits** until someone who already has access approves
+it on the **Users** page (or with `hermes auth approve EMAIL`). A first-time Google sign-in follows the same rule, so
+nobody can sign themselves in. Prefer the terminal? Run this once:
 
 ```powershell
 hermes auth set-password you@example.com   # password login, typed at a hidden prompt (10+ characters)
 hermes auth add you@gmail.com              # allow a Google account (needs the Google setup below)
-hermes auth list ; hermes auth remove you@example.com
+hermes auth list ; hermes auth approve bob@example.com ; hermes auth remove you@example.com
 ```
 
 **Google sign-in (optional, recommended).** In the Google Cloud Console create an OAuth client of type *Web
-application* and add the redirect URI `http://127.0.0.1:8000/auth/callback`. Then store its two values:
+application* and add the redirect URI `http://127.0.0.1:8000/auth/callback` (exactly that: Hermes sends people who
+open `localhost:8000` to `127.0.0.1:8000` so the sign-in cookie and Google's redirect agree). Then store its two values:
 `hermes secret set GOOGLE_CLIENT_ID` and `hermes secret set GOOGLE_CLIENT_SECRET`. Only addresses you allowed with
-`hermes auth add`, and that Google says are verified, can sign in. Hermes uses the authorization-code flow with PKCE
+`hermes auth add` or approved on the Users page, and that Google says are verified, can sign in. Hermes uses the authorization-code flow with PKCE
 and keeps no Google tokens.
 
 Passwords are stored as salted scrypt hashes. Five wrong attempts lock that account (and your address) for ten minutes.

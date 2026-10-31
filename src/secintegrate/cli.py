@@ -186,7 +186,7 @@ def serve(port: int = typer.Option(8000, "--port"), config_dir: Path = CONFIG_DI
             return None
 
     options = WebOptions(
-        session_secret=session_secret(), google=google_credentials,
+        session_secret=session_secret(), google=google_credentials, public_url=f"http://127.0.0.1:{port}",
         hooks=ConnectorHooks(added=lambda cfg: sched.add_connector(cfg, ctx), removed=sched.remove_connector),
     )
     if not ctx.db.list_app_users():

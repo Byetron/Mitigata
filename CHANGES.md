@@ -95,3 +95,14 @@ Tests are in `tests/test_autoheal.py` and `tests/test_web_auth.py`.
   hardened cookies and headers. The password fallback exists because Google credentials can only be created by you.
 - **Decisions:** the web UI now refuses anonymous visitors; `db reset` keeps sign-in users and secrets; no Google tokens are
   stored; the session secret is kept in the vault as `SESSION_SECRET`.
+
+### Account creation (`tests/test_signup.py`)
+
+- `/signup` page with a link from the sign-in page; the first account is active, later ones are `pending` until approved on
+  `/users` or with `hermes auth approve`. Google first sign-in follows the same rule. Existing addresses are never changed,
+  sign-up answers the same for new and existing addresses, every attempt counts toward a 10-minute limit, and at most 50
+  requests can wait.
+- A removed or unapproved user's session stops working on their next request.
+- `hermes serve` pins the address to `http://127.0.0.1:PORT` (other host names are redirected there) so the cookie and the
+  Google redirect URI match, and so a forged Host header cannot change the redirect URI.
+- Old databases gain the `status` column on start; people who could sign in before stay active.

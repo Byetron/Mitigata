@@ -10,6 +10,7 @@ import time
 from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
+from urllib.parse import urlparse
 
 from flask import Flask, Response, abort, g, jsonify, redirect, render_template, request, session
 from werkzeug.wrappers import Response as WerkzeugResponse
@@ -21,15 +22,18 @@ from .options import WebOptions
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MIN_PASSWORD_LENGTH = 10
 SCRYPT_N, SCRYPT_R, SCRYPT_P = 2**14, 8, 1
-PUBLIC_ENDPOINTS = {"login", "login_post", "google_start", "google_callback"}
+PUBLIC_ENDPOINTS = {"login", "login_post", "signup", "signup_post", "google_start", "google_callback"}
 SESSION_HOURS = 8
 GOOGLE_ERRORS = {
     "denied": "Google sign-in was cancelled.",
     "state": "The sign-in session expired. Please try again.",
     "failed": "Google sign-in failed. Please try again.",
     "unverified": "That Google account's email address is not verified.",
-    "notallowed": "That Google account is not allowed to use Hermes. Ask for access: `hermes auth add EMAIL`.",
+    "notallowed": "That Google account could not be added. Ask an existing user to run `hermes auth add EMAIL`.",
+    "pending": "Your request is waiting for approval by someone who already has access.",
 }
+PENDING_NOTICE = ("Thanks. If this address can be registered, it will be able to sign in as soon as someone who "
+                  "already has access approves it.")
 
 
 # --- passwords -----------------------------------------------------------------------------
@@ -102,10 +106,16 @@ def register_auth(app: Flask, db: Database, options: WebOptions) -> None:
 
     @app.context_processor
     def inject() -> dict[str, Any]:
-        return {"csrf_token": csrf_token, "current_user": session.get("user")}
+        waiting = sum(1 for u in db.list_app_users() if u["status"] == "pending") if session.get("user") else 0
+        return {"csrf_token": csrf_token, "current_user": session.get("user"), "pending_users": waiting}
+
+    canonical = urlparse(options.public_url).netloc if options.public_url else ""
 
     @app.before_request
     def guard() -> WerkzeugResponse | Response | None:
+        if canonical and request.method == "GET" and request.host != canonical:
+            # cookies belong to one host name: send people to the address Google was told about
+            return redirect(f"{options.public_url}{request.full_path.rstrip('?')}")
         if not options.require_login:
             g.user = None
             return None
@@ -115,7 +125,9 @@ def register_auth(app: Flask, db: Database, options: WebOptions) -> None:
                 abort(400, "Your session expired. Reload the page and try again.")
         if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint == "static":
             return None
-        if not session.get("user"):
+        account = db.get_app_user(session["user"]) if session.get("user") else None
+        if account is None or account["status"] != "active":
+            session.clear()  # removed or not yet approved: the session stops working at once
             if request.method != "GET" or request.path.startswith("/connectors/validate"):
                 abort(401)
             return redirect(f"/login?next={request.path}")
@@ -170,6 +182,8 @@ def register_auth(app: Flask, db: Database, options: WebOptions) -> None:
             throttle.fail(*keys)
             return login_page("Wrong email or password.", 401)
         throttle.clear(*keys)
+        if (user or {}).get("status") != "active":  # only reached with the right password
+            return login_page("Your account is waiting for approval by someone who already has access.", 403)
         return sign_in(email)
 
     @app.post("/logout")
@@ -178,7 +192,7 @@ def register_auth(app: Flask, db: Database, options: WebOptions) -> None:
         return redirect("/login")
 
     def redirect_uri() -> str:
-        return request.url_root.rstrip("/") + "/auth/callback"
+        return (options.public_url or request.url_root).rstrip("/") + "/auth/callback"
 
     @app.get("/auth/google")
     def google_start() -> WerkzeugResponse:
@@ -209,6 +223,67 @@ def register_auth(app: Flask, db: Database, options: WebOptions) -> None:
                                                 options.transport)
         except google.GoogleAuthError as exc:
             return fail(exc.code)
-        if db.get_app_user(email) is None:
-            return fail("notallowed")
+        user = db.get_app_user(email)
+        if user is None:  # first sign-in: the first account is active, later ones wait for approval
+            if db.create_app_user(email, None) == "full":
+                return fail("notallowed")
+            user = db.get_app_user(email)
+        if user is None or user["status"] != "active":
+            return fail("pending")
         return sign_in(email)
+
+    # --- creating an account -------------------------------------------------------------------
+    def signup_page(error: str | None = None, notice: str | None = None, status: int = 200,
+                    email: str = "") -> tuple[str, int]:
+        return render_template("signup.html", error=error, notice=notice, email=email, page="login",
+                               google_enabled=options.google() is not None,
+                               min_length=MIN_PASSWORD_LENGTH), status
+
+    @app.get("/signup")
+    def signup() -> tuple[str, int] | WerkzeugResponse:
+        if session.get("user"):
+            return redirect("/")
+        return signup_page()
+
+    @app.post("/signup")
+    def signup_post() -> tuple[str, int] | WerkzeugResponse:  # noqa: PLR0911 - one page per distinct outcome
+        email = (request.form.get("email") or "").strip().lower()
+        password = request.form.get("password") or ""
+        key = f"signup:{request.remote_addr}"
+        if throttle.blocked(key):
+            return signup_page("Too many attempts. Wait 10 minutes and try again.", status=429, email=email)
+        throttle.fail(key)  # every attempt counts, so this cannot be used to create accounts in bulk
+        if not EMAIL_RE.match(email):
+            return signup_page("Enter a valid email address.", status=400, email=email)
+        if len(password) < MIN_PASSWORD_LENGTH:
+            return signup_page(f"Use at least {MIN_PASSWORD_LENGTH} characters for the password.", status=400,
+                               email=email)
+        if password != (request.form.get("confirm") or ""):
+            return signup_page("The two passwords do not match.", status=400, email=email)
+        outcome = db.create_app_user(email, hash_password(password))
+        if outcome == "active":  # the first account ever
+            return sign_in(email)
+        if outcome == "full":
+            return signup_page("Too many requests are waiting. Ask someone with access to review them first.",
+                               status=429, email=email)
+        return signup_page(notice=PENDING_NOTICE)  # same answer for new and existing addresses
+
+    # --- people who can sign in: approve, reject, remove -------------------------------------------
+    @app.get("/users")
+    def users() -> str:
+        return render_template("users.html", accounts=db.list_app_users(), page="users", me=session.get("user"))
+
+    @app.post("/users/approve")
+    def users_approve() -> WerkzeugResponse:
+        if not db.approve_app_user(request.form.get("email", "")):
+            abort(404)
+        return redirect("/users")
+
+    @app.post("/users/remove")
+    def users_remove() -> WerkzeugResponse:
+        email = (request.form.get("email") or "").strip().lower()
+        if email == session.get("user"):
+            abort(400, "You cannot remove your own account.")
+        if not db.remove_app_user(email):
+            abort(404)
+        return redirect("/users")

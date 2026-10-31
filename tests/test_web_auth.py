@@ -214,7 +214,7 @@ def test_google_sign_in_for_an_allowed_address(tmp_path: Path, db: Database, goo
 
 
 @pytest.mark.parametrize(("change", "expected"), [
-    ({"email": "stranger@example.com"}, "notallowed"),
+    ({"email": "stranger@example.com"}, "pending"),
     ({"verified": False}, "unverified"),
     ({"token_ok": False}, "failed"),
 ])

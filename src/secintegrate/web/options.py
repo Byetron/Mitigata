@@ -28,4 +28,5 @@ class WebOptions:
     session_secret: str = ""
     google: Callable[[], GoogleCredentials | None] = _no_google
     hooks: ConnectorHooks | None = None
+    public_url: str | None = None  # e.g. http://127.0.0.1:8000: the one address Google redirects back to
     transport: httpx.BaseTransport | None = field(default=None, repr=False)  # tests mock Google with this

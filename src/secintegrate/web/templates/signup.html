@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Create account | Hermes{% endblock %}
+{% block heading %}Hermes{% endblock %}
+{% block subtitle %}Create an account.{% endblock %}
+
+{% block style %}
+  .login { max-width: 400px; margin: 24px auto; display: grid; gap: 16px; }
+  .login label { display: block; font-size: .82rem; font-weight: 600; margin-bottom: 4px; }
+  .login .hint { color: var(--muted); font-size: .75rem; font-weight: 400; }
+  input { width: 100%; font: inherit; font-size: .95rem; color: var(--text); background: var(--bg);
+          border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .btn { display: block; width: 100%; text-align: center; font: inherit; font-weight: 600; color: #fff;
+         background: var(--accent); border: 0; border-radius: 8px; padding: 10px 14px; cursor: pointer; text-decoration: none; }
+  .btn:hover { filter: brightness(1.08); }
+  .btn.google { background: var(--card); color: var(--text); border: 1px solid var(--line); }
+  .error { color: var(--bad); background: var(--err-bg); border: 1px solid var(--err-line); border-radius: 8px;
+           padding: 8px 12px; font-size: .88rem; }
+  .notice { color: var(--text); background: var(--card); border: 1px solid var(--ok); border-radius: 8px;
+            padding: 10px 14px; font-size: .9rem; }
+  .or { text-align: center; color: var(--muted); font-size: .8rem; margin: 14px 0; }
+  .field { margin-bottom: 12px; }
+{% endblock %}
+
+{% block content %}
+<div class="login">
+  {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+  {% if notice %}
+    <div class="notice" role="status">{{ notice }}</div>
+    <div class="sub"><a href="/login">Back to sign in</a></div>
+  {% else %}
+  <div class="card">
+    {% if google_enabled %}
+      <a class="btn google" href="/auth/google">Continue with Google</a>
+      <div class="or">or create a password account</div>
+    {% endif %}
+    <form method="post" action="/signup">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="field"><label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="username" required autofocus value="{{ email }}"></div>
+      <div class="field"><label for="password">Password <span class="hint">at least {{ min_length }} characters</span></label>
+        <input id="password" name="password" type="password" autocomplete="new-password" minlength="{{ min_length }}" required></div>
+      <div class="field"><label for="confirm">Confirm password</label>
+        <input id="confirm" name="confirm" type="password" autocomplete="new-password" minlength="{{ min_length }}" required></div>
+      <button class="btn" type="submit">Create account</button>
+    </form>
+  </div>
+  <div class="card sub">
+    The first account created gets in straight away. Every account after that waits until someone who already has
+    access approves it, so nobody can sign themselves in.
+  </div>
+  <div class="sub">Already have an account? <a href="/login">Sign in</a></div>
+  {% endif %}
+</div>
+{% endblock %}
