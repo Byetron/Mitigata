@@ -172,7 +172,7 @@ def test_a_pending_retry_survives_a_restart(tmp_path: Any, db: Database, vault: 
     from secintegrate.scheduler import HermesScheduler, _retry_id, _run_job
 
     cfg = make_cfg(BASE)
-    app = App(config_dir=tmp_path, db=db, vault=vault, notifier=notifier)  # type: ignore[call-arg]
+    app = App(config_dir=tmp_path, db=db, vault=vault, notifier=notifier)
     first = HermesScheduler()
     first.start(paused=True)
     first.add_connector(cfg, app)
@@ -220,7 +220,7 @@ def test_a_disabled_connector_is_never_run(db: Database, vault: SecretVault, not
     cfg = make_cfg(BASE, enabled=False)
     sched = HermesScheduler()
     sched.start(paused=True)
-    sched.add_connector(cfg, App(config_dir=Path("."), db=db, vault=vault, notifier=notifier))  # type: ignore[call-arg]
+    sched.add_connector(cfg, App(config_dir=Path("."), db=db, vault=vault, notifier=notifier))
     assert sched.entries == {} and sched.get_jobs() == []
     ctx = ToolContext(cfg, db, vault, notifier, transport=api(), sleep=lambda s: None)
     assert not default_registry().call("rerun", ctx, {}, "auto").ok
@@ -316,7 +316,7 @@ def test_a_valid_edit_runs_the_connector_soon(tmp_path: Any, db: Database, vault
     (cfg_dir / "run_me.yaml").write_text(text, encoding="utf-8")
     sched = HermesScheduler()
     sched.start(paused=True)
-    ws = App(config_dir=cfg_dir, db=db, vault=vault, notifier=notifier)  # type: ignore[call-arg]
+    ws = App(config_dir=cfg_dir, db=db, vault=vault, notifier=notifier)
     hooks = ConnectorHooks(added=lambda e, c: sched.add_connector(c, ws),
                            removed=lambda e, n: sched.remove_connector(n),
                            run_now=lambda e, n: sched.run_soon(n))
@@ -340,7 +340,7 @@ def test_a_run_uses_the_latest_settings_and_skips_a_removed_connector(db: Databa
         return type("R", (), {"retry_in_minutes": None})()
 
     monkeypatch.setattr(sch, "run_connector", fake_run)
-    ws = App(config_dir=Path("."), db=db, vault=vault, notifier=notifier)  # type: ignore[call-arg]
+    ws = App(config_dir=Path("."), db=db, vault=vault, notifier=notifier)
     sched = sch.HermesScheduler()
     sched.start(paused=True)
     old, new = make_cfg("https://old.example.test"), make_cfg("https://new.example.test")
