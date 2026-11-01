@@ -165,18 +165,22 @@ def test_cli_diagnose_and_tools_run(tmp_path: Any) -> None:
 
 
 def test_a_pending_retry_survives_a_restart(tmp_path: Any, db: Database, vault: SecretVault,
-                                            notifier: RecordingNotifier) -> None:
+                                            notifier: RecordingNotifier, monkeypatch: Any) -> None:
     from datetime import UTC, datetime, timedelta
 
+    from secintegrate import scheduler as sch
     from secintegrate.bootstrap import App
     from secintegrate.scheduler import HermesScheduler, _retry_id, _run_job
+
+    # a failed run that asks for a retry in 5 minutes; no network is touched
+    monkeypatch.setattr(sch, "run_connector", lambda *a, **k: type("R", (), {"retry_in_minutes": 5})())
 
     cfg = make_cfg(BASE)
     app = App(config_dir=tmp_path, db=db, vault=vault, notifier=notifier)
     first = HermesScheduler()
     first.start(paused=True)
     first.add_connector(cfg, app)
-    _run_job(cfg, app, first)  # the first try fails (no server): a retry is saved
+    _run_job(cfg, app, first)  # the first try fails: a retry is saved
     assert db.pending_retry("github_advisories") is not None
     second = HermesScheduler()  # a restart: a new scheduler, the same database
     second.start(paused=True)

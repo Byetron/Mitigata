@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     strategy:
@@ -11,6 +15,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     env:
       # A throwaway 32-byte key (64 hex chars). Headless runners have no OS keychain.
       SECINTEGRATE_MASTER_KEY: ${{ secrets.SECINTEGRATE_MASTER_KEY }}
