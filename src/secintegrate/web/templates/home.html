@@ -65,12 +65,12 @@
     <div class="cwrap">
     <div class="card conn {{ c.status }}">
       <div class="top"><span class="name"><span class="dot"></span>{{ c.connector }}</span>
-        <span class="pill">{{ c.status.replace('_', ' ') }}{{ ' (config error)' if c.config_note }}</span></div>
+        <span class="pill">{{ c.status.replace('_', ' ') }}{{ ' (config error)' if c.config_note }}{{ ' (disabled)' if c.disabled }}</span></div>
       <dl>
         <dt>Last run</dt><dd>{{ c.last_run_finished_at or 'never' }}</dd>
-        <dt>Records pulled</dt><dd>{{ '{:,}'.format(c.last_records_pulled or 0) }}</dd>
-        <dt>Quarantined in last run</dt><dd>{{ c.last_bad if c.last_bad is not none else '-' }}</dd>
-        <dt>Failures in a row</dt><dd>{{ c.consecutive_failures or 0 }}</dd>
+        <dt>Records</dt><dd>{{ '{:,}'.format(c.last_records_pulled or 0) }}</dd>
+        <dt>Quarantined</dt><dd>{{ c.last_bad if c.last_bad is not none else '-' }}</dd>
+        <dt>Failures</dt><dd>{{ c.consecutive_failures or 0 }}</dd>
       </dl>
       <div class="spark" title="Last {{ c.spark|length }} probe checks, oldest first">
         {% for p in c.spark %}<span class="{{ 'up' if p.ok else 'down' }}" title="{{ p.checked_at }}{{ '' if p.ok else ' ' ~ (p.category or 'failed') }}"></span>{% else %}<em>no probe checks yet</em>{% endfor %}

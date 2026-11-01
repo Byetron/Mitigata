@@ -215,3 +215,21 @@ def test_the_page_says_the_first_records_are_being_fetched(tmp_path: Path, db: D
     without = create_app(tmp_path / "b", db, None, WebOptions(require_login=False))
     quiet = without.test_client().post("/connectors/new-yaml", data={"yaml_text": GOOD_YAML}).get_data(as_text=True)
     assert "Fetching its first records now" not in quiet  # nothing is running to fetch it
+
+
+def test_removal_also_clears_records_left_under_an_old_source_label(tmp_path: Path, db: Database) -> None:
+    from secintegrate.connector_files import remove_connector
+
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    (cfg / "feodo_c2.yaml").write_text(
+        "connector: feodo_c2\nsource: feodo\nschedule: '0 * * * *'\nbase_url: https://example.com\n"
+        "auth: {type: none}\nendpoints:\n  - name: e\n    path: /x\n    mapping:\n      target: device\n"
+        "      fields:\n        id: {from: id, required: true}\n", encoding="utf-8")
+    with db.conn() as c:  # an old, untagged row under a label the config no longer uses
+        c.execute("INSERT INTO devices (source, id, fetched_at) VALUES ('feodotracker', 'd1', '2026-01-01T00:00:00Z')")
+        c.execute("INSERT INTO devices (source, id, fetched_at) VALUES ('github', 'd2', '2026-01-01T00:00:00Z')")
+    removal = remove_connector(cfg, db, "feodo_c2")
+    assert removal is not None and removal.records == 2  # both are orphans: no remaining config uses either label
+    with db.conn() as c:
+        assert c.execute("SELECT COUNT(*) FROM devices").fetchone()[0] == 0

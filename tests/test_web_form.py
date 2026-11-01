@@ -113,3 +113,16 @@ def test_form_page_has_presets_and_no_secret_value_field(client: FlaskClient) ->
     for name in ("github", "nvd", "public"):
         assert f'data-preset="{name}"' in html
     assert 'type="password"' not in html
+
+
+def test_every_public_feed_preset_is_valid_and_the_button_offers_them_all() -> None:
+    import yaml as _yaml
+
+    from secintegrate.config.validator import validate_text
+
+    feeds = forms.public_feeds()
+    assert len(feeds) >= 5 and len({f["label"] for f in feeds}) == len(feeds)
+    for feed in feeds:
+        text = _yaml.safe_dump(forms.build_config(feed), sort_keys=False)
+        cfg, issues = validate_text(text, "x.yaml", set(), None, allow_internal=False)
+        assert cfg is not None and not [i for i in issues if i.severity == "error"], (feed["label"], issues)

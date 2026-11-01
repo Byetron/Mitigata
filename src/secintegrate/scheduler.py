@@ -5,7 +5,9 @@ connector name without ever touching each other's jobs. The pre-existing workspa
 """
 from __future__ import annotations
 
+import itertools
 import logging
+import threading
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 
@@ -71,6 +73,17 @@ class HermesScheduler(BackgroundScheduler):  # type: ignore[misc]
         self.add_connector(cfg, app, owner)
         return bool(schedule_first_runs(self, [cfg], app, owner, delay=ADDED_RUN_DELAY_SECONDS))
 
+    def run_soon(self, connector: str, owner: str = "", delay: int = ADDED_RUN_DELAY_SECONDS) -> bool:
+        """Run a registered connector once, shortly from now (used after an edit, so its effect is visible)."""
+        entry = self.entries.get((owner, connector))
+        if entry is None:  # disabled or unknown: nothing is run
+            return False
+        cfg, app = entry
+        self.add_job(_run_job, DateTrigger(run_date=datetime.now(UTC) + timedelta(seconds=delay)),
+                     args=[cfg, app, self, owner], id=_jid(owner, f"{connector}__edit{next(_edit_runs)}"),
+                     misfire_grace_time=300)  # its own job each time, so an edit's run is never dropped
+        return True
+
     def remove_connector(self, connector: str, owner: str = "") -> None:
         self.entries.pop((owner, connector), None)
         remove_connector_jobs(self, connector, owner)
@@ -80,12 +93,36 @@ class HermesScheduler(BackgroundScheduler):  # type: ignore[misc]
                      max_instances=1, coalesce=True, replace_existing=True)
 
 
+_LOCKS: dict[tuple[str, str], threading.Lock] = {}
+_LOCKS_GUARD = threading.Lock()
+_edit_runs = itertools.count(1)
+
+
+def _lock_for(owner: str, connector: str) -> threading.Lock:
+    with _LOCKS_GUARD:
+        return _LOCKS.setdefault((owner, connector), threading.Lock())
+
+
 def _run_job(cfg: ConnectorConfig, app: App, sched: BackgroundScheduler, owner: str = "") -> None:
+    with _lock_for(owner, cfg.connector):  # one run of a connector at a time; a later one waits its turn
+        entries = getattr(sched, "entries", None)
+        if entries is not None:
+            current = entries.get((owner, cfg.connector))
+            if current is None:  # removed or disabled while this job was waiting
+                return
+            cfg, app = current  # always the latest saved settings, never a stale copy
+        _run_once(cfg, app, sched, owner)
+
+
+def _run_once(cfg: ConnectorConfig, app: App, sched: BackgroundScheduler, owner: str) -> None:
     try:
         result = run_connector(cfg, app.db, app.vault, app.notifier)
     except Exception as exc:
         logger.error("%s: scheduled run crashed with %s", cfg.connector, type(exc).__name__)
         return
+    entries = getattr(sched, "entries", None)
+    if entries is not None and (owner, cfg.connector) not in entries:
+        return  # removed or disabled during the run: no retry
     job_id = _retry_id(cfg.connector, owner)
     if result.retry_in_minutes:  # a transient failure: try again soon instead of waiting for cron
         when = datetime.now(UTC) + timedelta(minutes=result.retry_in_minutes)

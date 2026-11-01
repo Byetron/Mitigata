@@ -21,6 +21,7 @@ from ..connector_files import remove_connector, template_text, write_connector
 from ..diagnose import Diagnosis
 from ..secrets import redact
 from ..storage.db import Database
+from ..suggest import suggest_fixes
 from ..transforms import TRANSFORMS
 from . import forms
 from .auth import register_auth
@@ -68,6 +69,19 @@ def _saved_diagnosis(db: Database, connector: str) -> Diagnosis | None:
         return Diagnosis.from_json(saved["report"])
     except (ValueError, KeyError, TypeError):
         return None
+
+
+def _disabled_connectors(config_dir: Path) -> set[str]:
+    """Connectors whose config says `enabled: false`: nothing schedules or runs them."""
+    off: set[str] = set()
+    for f in config_files(config_dir):
+        try:
+            cfg = parse_config(f)
+        except (ValidationError, yaml.YAMLError):
+            continue
+        if not cfg.enabled:
+            off.add(cfg.connector)
+    return off
 
 
 def source_freshness(config_dir: Path, db: Database, conns: list[dict[str, Any]],
@@ -143,6 +157,7 @@ def create_app(config_dir: str | Path, db: Database, secret_names: SecretNames |
             source = None  # unknown filter: fall back to all events
             data = c.db.dashboard()
         configured = existing_ids(c.config_dir)
+        disabled = _disabled_connectors(c.config_dir)
         conns = [r for r in c.db.health_rows() if r["connector"] in configured]  # hide removed connectors
         for r in conns:
             r["last_error"] = redact(r["last_error"]) if r["last_error"] else ""
@@ -154,8 +169,13 @@ def create_app(config_dir: str | Path, db: Database, secret_names: SecretNames |
                 r["status"] = "degraded"  # the saved config is no longer what the user wants
                 r["config_note"] = True
             r["diagnosis"] = _saved_diagnosis(c.db, r["connector"])
-            r["bad_requests"] = [q for q in c.db.recent_requests(r["connector"], 30)
-                                 if q["status"] is None or q["status"] >= 400][:3]  # noqa: PLR2004
+            if r["connector"] in disabled:  # not run by anything, so old failures must not stay on show
+                r["status"] = "paused"
+                r["disabled"] = True
+                r["message"] = "Disabled in its config. Set enabled: true to run it again."
+                r["diagnosis"] = None
+            r["bad_requests"] = [] if r["connector"] in disabled else [
+                q for q in c.db.recent_requests(r["connector"], 30) if q["status"] is None or q["status"] >= 400][:3]  # noqa: PLR2004
         counts = {s: sum(1 for r in conns if r["status"] == s)
                   for s in ("healthy", "degraded", "failing", "paused", "never_run")}
         data["event_sources"] = source_freshness(c.config_dir, c.db, conns, data["event_sources"])
@@ -179,7 +199,8 @@ def create_app(config_dir: str | Path, db: Database, secret_names: SecretNames |
     def edit_page(connector: str, text: str, issues: Sequence[Any], status: int = 200,
                   saved: bool = False, restored: bool = False) -> tuple[str, int]:
         return render_template("edit_connector.html", connector=connector, yaml_text=text, issues=issues,
-                               saved=saved, restored=restored, page="home"), status
+                               saved=saved, restored=restored, page="home",
+                               suggestions=suggest_fixes(text, _saved_diagnosis(ctx().db, connector))), status
 
     @app.get("/connectors/<connector>/edit")
     def edit_connector(connector: str) -> tuple[str, int]:
@@ -215,6 +236,8 @@ def create_app(config_dir: str | Path, db: Database, secret_names: SecretNames |
         if opts.hooks is not None:
             opts.hooks.removed(owner(), connector)
             opts.hooks.added(owner(), cfg)
+            if opts.hooks.run_now is not None:
+                opts.hooks.run_now(owner(), connector)  # so the effect of the edit shows up straight away
         return edit_page(connector, text, issues, saved=True)
 
     def render_form(values: dict[str, Any], issues: list[ValidationIssue] | None = None,
@@ -225,7 +248,9 @@ def create_app(config_dir: str | Path, db: Database, secret_names: SecretNames |
         html = render_template(
             "new_connector.html", v=forms.safe_for_display(values), by_field=by_field, general=general,
             result=result, targets=TARGET_FIELDS, transforms=sorted(TRANSFORMS), page="new",
-            presets=forms.presets(), tab=tab, yaml_text=yaml_text if yaml_text is not None else template_text(),
+            presets=forms.presets(),
+            public_feeds=forms.public_feeds(), tab=tab,
+            yaml_text=yaml_text if yaml_text is not None else template_text(),
             yaml_issues=yaml_issues or [], template=template_text(),
         )
         return html, status

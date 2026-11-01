@@ -8,16 +8,36 @@
   .actions { display: flex; gap: 8px; margin-top: 12px; }
   .issue { padding: 4px 0; }
   .line { color: var(--muted); margin-right: 6px; }
+  .sugg { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+  .s-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+  .muted { color: var(--muted); font-size: .85rem; }
 {% endblock %}
 {% block content %}
 <form method="post" action="/connectors/{{ connector }}/edit" style="max-width:860px">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="card">
     {% if restored %}<p><strong>Your unsaved draft was restored.</strong> The connector still runs on the last saved version.</p>{% endif %}
-    {% if saved %}<p><strong>Saved.</strong> The new settings are live.</p>{% endif %}
+    {% if saved %}<p><strong>Saved.</strong> The new settings are live, and the connector is running now.</p>{% endif %}
     {% for i in issues %}<div class="issue {{ i.severity }}"><span class="line">line {{ i.line }}</span>{{ i.message }}</div>{% endfor %}
-    <textarea name="yaml_text" spellcheck="false" autocomplete="off" required>{{ yaml_text }}</textarea>
+    {% if suggestions %}<div class="sugg"><strong>Suggested fixes</strong>
+      {% for s in suggestions %}<div class="s-row"><div><b>{{ s.title }}</b><br><span class="muted">{{ s.why }}</span></div>
+        <button type="button" class="apply" data-kind="{{ s.kind }}" data-old="{{ s.old }}" data-new="{{ s.new }}">Apply to editor</button></div>{% endfor %}
+    </div>{% endif %}
+    <textarea id="yaml_text" name="yaml_text" spellcheck="false" autocomplete="off" required>{{ yaml_text }}</textarea>
     <div class="actions"><button type="submit">Validate and save</button><a href="/">Back</a></div>
   </div>
 </form>
+<script>
+document.querySelectorAll('.apply').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var box = document.getElementById('yaml_text');
+    if (b.dataset.kind === 'append') {
+      box.value = box.value.trimEnd() + String.fromCharCode(10) + b.dataset.new;
+    } else {
+      box.value = box.value.split(b.dataset.old).join(b.dataset.new);
+    }
+    b.disabled = true; b.textContent = 'Applied: press Validate and save';
+  });
+});
+</script>
 {% endblock %}

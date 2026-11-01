@@ -25,13 +25,18 @@ def template_text() -> str:
     return TEMPLATE_PATH.read_text(encoding="utf-8")
 
 
+cr, nl = chr(13), chr(10)
+
+
 def write_connector(config_dir: Path, connector: str, text: str) -> Path:
     """Save validated YAML as <connector>.yaml. The id was checked by the validator; check it again here."""
     if not ID_RE.match(connector):
         raise ValueError("invalid connector id")
     config_dir.mkdir(parents=True, exist_ok=True)
     target = config_dir / f"{connector}.yaml"
-    target.write_text(text, encoding="utf-8")
+    clean = text.replace(cr + nl, nl).replace(cr, nl)  # a browser sends CRLF; Windows would double it on write
+    with target.open("w", encoding="utf-8", newline="") as handle:
+        handle.write(clean)
     return target
 
 
@@ -72,6 +77,7 @@ def remove_connector(config_dir: Path, db: Database, connector: str) -> Removal 
     shutil.move(str(file), destination)
     shared = source is not None and source in _sources_in_use(config_dir)  # another connector still uses the label
     records = db.delete_connector_data(connector, source, shared)
+    records += db.delete_orphan_records(_sources_in_use(config_dir))  # rows left under an older source label
     db.delete_connector_state(connector)
     logger.info("removed connector %s and %d record(s) (config kept in %s)", connector, records, destination)
     return Removal(destination, records)

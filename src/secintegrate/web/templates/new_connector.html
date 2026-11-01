@@ -94,6 +94,7 @@
         <button type="button" class="preset" data-preset="github">GitHub advisories</button>
         <button type="button" class="preset" data-preset="nvd">NVD CVEs</button>
         <button type="button" class="preset" data-preset="public">Public feed (no key)</button>
+        <span id="feed-label" class="hint" aria-live="polite"></span>
         <span class="sub">Fills the form with working paging, auth and mapping. Edit it afterwards.</span>
       </div>
     </div>
@@ -202,6 +203,8 @@
 
   <script>
     const PRESETS = {{ presets|tojson }};
+    const PUBLIC_FEEDS = {{ public_feeds|tojson }};
+    let lastFeed = -1;
     const TEMPLATE = {{ template|tojson }};
     const form = document.getElementById('connector-form');
 
@@ -262,7 +265,17 @@
 
     document.querySelectorAll('[data-preset]').forEach(function (button) {
       button.addEventListener('click', function () {
-        const preset = PRESETS[button.dataset.preset];
+        let preset = PRESETS[button.dataset.preset];
+        const label = document.getElementById('feed-label');
+        if (button.dataset.preset === 'public') {  // a different public feed each click
+          let next = Math.floor(Math.random() * PUBLIC_FEEDS.length);
+          if (PUBLIC_FEEDS.length > 1 && next === lastFeed) next = (next + 1) % PUBLIC_FEEDS.length;
+          lastFeed = next;
+          preset = PUBLIC_FEEDS[next];
+          label.textContent = 'Loaded: ' + preset.label + ' (click again for another)';
+        } else {
+          label.textContent = '';
+        }
         Object.keys(preset).forEach(function (key) {
           if (key === 'rows') {
             preset.rows.forEach(function (row, i) {

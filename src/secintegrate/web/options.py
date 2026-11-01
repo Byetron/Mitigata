@@ -32,6 +32,7 @@ class ConnectorHooks:
 
     added: Callable[[str, ConnectorConfig], None]
     removed: Callable[[str, str], None]
+    run_now: Callable[[str, str], object] | None = None  # (account, connector): run it again about a second from now
 
 
 def _no_google() -> GoogleCredentials | None:

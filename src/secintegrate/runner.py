@@ -150,7 +150,9 @@ def run_connector(
     began = time.monotonic()
     db.ensure_connection(cfg.connector)
 
-    if probe_due(cfg, db):  # a probe never writes records
+    last = db.latest_probe(cfg.connector)
+    if probe_due(cfg, db) or (cfg.probe is not None and last is not None and not last["ok"]):
+        # a probe never writes records; a failing one is re-tested at once, so a fixed config clears it
         probe_connector(cfg, db, vault, notifier, sleep, transport)
     before = db.get_connection(cfg.connector) or {}
     if before.get("paused"):

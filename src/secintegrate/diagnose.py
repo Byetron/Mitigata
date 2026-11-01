@@ -378,7 +378,8 @@ def _reply_findings(cfg: ConnectorConfig, ep: Endpoint, data: Any, headers: http
             hint = f" Did you mean `{close[0]}`?" if close else ""
             return [Finding("records_path_missing", "error", "data", "The list of records is not where the config says",
                             f"records_path `{ep.records_path}` is not in the reply.{hint}",
-                            "Set records_path to the name that holds the list.", {"top_level_keys": keys})]
+                            "Set records_path to the name that holds the list.",
+                            {"top_level_keys": keys, **({"suggestion": close[0]} if close else {})})]
         return [Finding("records_not_list", "error", "data", "The reply is not a list of records", exc.detail,
                         "Set records_path to where the list is, or check the endpoint.", {"top_level_keys": keys})]
     if not records:
@@ -401,6 +402,11 @@ def _mapping_findings(ep: Endpoint, sample: list[dict[str, Any]], total: int) ->
             continue
         have = sum(1 for rec in sample if get_path(rec, rule.from_)[0] and get_path(rec, rule.from_)[1] is not None)
         if have == len(sample):
+            continue
+        if 0 < have < len(sample) and not rule.required and "default" in rule.model_fields_set:
+            out.append(Finding("field_optional", "info", "data", f"The field `{rule.from_}` is sometimes missing",
+                               f"Present in {have} of {len(sample)} records. The rest get the default, so nothing is "
+                               "lost.", evidence={"field": name, "present_in": f"{have} of {len(sample)} records"}))
             continue
         bad += 1
         near = suggest_keys(sample, rule.from_)

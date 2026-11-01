@@ -171,6 +171,20 @@ class Database:
                         f"DELETE FROM {table} WHERE connector IS NULL AND source=?", (source,)).rowcount  # noqa: S608
         return deleted
 
+    def delete_orphan_records(self, sources_in_use: set[str]) -> int:
+        """Delete untagged records whose source label no configured connector uses any more.
+
+        These are left behind when a connector's source label was changed before it was removed.
+        """
+        deleted = 0
+        marks = ",".join("?" for _ in sources_in_use) or "''"
+        with self.conn() as c:
+            for table in ("users", "devices", "events"):
+                deleted += c.execute(
+                    f"DELETE FROM {table} WHERE connector IS NULL AND source NOT IN ({marks})",  # noqa: S608
+                    tuple(sources_in_use)).rowcount
+        return deleted
+
     def delete_connector_state(self, connector: str) -> None:
         """Forget a removed connector's health, history, probes and cursor."""
         with self.conn() as c:

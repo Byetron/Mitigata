@@ -201,3 +201,39 @@ def presets() -> dict[str, dict[str, Any]]:
                                   _row("timestamp", "dateAdded", "iso8601", True),
                                   _row("description", "shortDescription")])},
     }
+
+
+def public_feeds() -> list[dict[str, Any]]:
+    """Keyless public feeds. The "Public feed" button loads a different one at random each click."""
+    base = default_values()
+    common = {"auth_type": "none", "pagination_type": "none"}
+    feeds = [
+        {**base, **common, "label": "CISA known exploited vulnerabilities", "connector_id": "cisa_example",
+         "source": "cisa", "base_url": "https://www.cisa.gov", "schedule": "0 */6 * * *", "endpoint_name": "kev",
+         "path": "/sites/default/files/feeds/known_exploited_vulnerabilities.json", "records_path": "vulnerabilities",
+         "mapping_target": "event",
+         "rows": _fill([_row("id", "cveID", "", True), _row("type", "=kev"), _row("severity", "=high"),
+                        _row("timestamp", "dateAdded", "iso8601", True), _row("description", "shortDescription")])},
+        {**base, **common, "label": "FIRST EPSS exploit-probability scores", "connector_id": "epss_example",
+         "source": "first_epss", "base_url": "https://api.first.org", "schedule": "0 6 * * *",
+         "endpoint_name": "epss", "path": "/data/v1/epss", "records_path": "data", "mapping_target": "event",
+         "rows": _fill([_row("id", "cve", "", True), _row("type", "=epss"), _row("severity", "=info"),
+                        _row("timestamp", "date", "iso8601", True), _row("description", "epss", "to_string")])},
+        {**base, **common, "label": "Ransomware.live recent victims", "connector_id": "ransomware_example",
+         "source": "ransomware_live", "base_url": "https://api.ransomware.live", "schedule": "0 */3 * * *",
+         "endpoint_name": "victims", "path": "/v2/recentvictims", "mapping_target": "event",
+         "rows": _fill([_row("id", "url", "", True), _row("type", "=ransomware"), _row("severity", "=high"),
+                        _row("timestamp", "discovered", "iso8601", True), _row("description", "victim")])},
+        {**base, **common, "label": "SANS ISC top attacking IPs", "connector_id": "sans_isc_example",
+         "source": "sans_isc", "base_url": "https://isc.sans.edu", "schedule": "0 */4 * * *",
+         "endpoint_name": "attackers", "path": "/api/sources/attacks/100?json", "mapping_target": "device",
+         "rows": _fill([_row("id", "ip", "", True), _row("ip", "ip", "", True),
+                        _row("last_seen", "lastseen", "iso8601")])},
+        {**base, **common, "label": "Feodo Tracker botnet C2 servers", "connector_id": "feodo_example",
+         "source": "feodo", "base_url": "https://feodotracker.abuse.ch", "schedule": "30 */4 * * *",
+         "endpoint_name": "blocklist", "path": "/downloads/ipblocklist.json", "mapping_target": "device",
+         "rows": _fill([_row("id", "ip_address", "", True), _row("ip", "ip_address", "", True),
+                        _row("os", "malware"), _row("owner", "as_name"),
+                        _row("last_seen", "last_online", "iso8601")])},
+    ]
+    return feeds

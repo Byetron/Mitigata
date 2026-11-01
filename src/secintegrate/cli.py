@@ -223,7 +223,8 @@ def serve(port: int = typer.Option(8000, "--port"), config_dir: Path = CONFIG_DI
     options = WebOptions(
         session_secret=session_secret(), google=google_credentials, public_url=f"http://127.0.0.1:{port}",
         hooks=ConnectorHooks(added=connector_added,
-                             removed=lambda email, name: sched.remove_connector(name, scheduler_owner(email))),
+                             removed=lambda email, name: sched.remove_connector(name, scheduler_owner(email)),
+                             run_now=lambda email, name: sched.run_soon(name, scheduler_owner(email))),
         workspaces=manager.web_context,
     )
     log.info("scheduled %d connector(s); dashboard at http://127.0.0.1:%d/ (sign-in required)", loaded, port)

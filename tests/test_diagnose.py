@@ -171,3 +171,14 @@ def test_secret_issue_detection_and_cleaning() -> None:
 def test_field_name_suggestions() -> None:
     assert suggest_keys([{"publishedAt": 1}], "published_at") == ["publishedAt"]
     assert suggest_keys([{"unrelated": 1}], "published_at") == []
+
+
+def test_a_sometimes_missing_field_with_a_default_is_not_a_warning(db: Database, vault: SecretVault) -> None:
+    cfg = make_cfg(BASE)
+    mapping = cfg.endpoints[0].mapping.fields
+    mapping["description"] = mapping["description"].model_copy(update={"from_": "extra"})  # has a default already
+    records = [{**advisory(1), "extra": "x"}, advisory(2)]
+    d = diagnose(cfg, db, vault, resolver=resolver_ok, tls_check=tls_ok, transport=serve(body=records),
+                 sleep=lambda s: None)
+    assert "field_optional" in codes(d) and "field_partial" not in codes(d)
+    assert d.verdict == "healthy"

@@ -175,6 +175,7 @@ def test_a_pending_retry_survives_a_restart(tmp_path: Any, db: Database, vault: 
     app = App(config_dir=tmp_path, db=db, vault=vault, notifier=notifier)  # type: ignore[call-arg]
     first = HermesScheduler()
     first.start(paused=True)
+    first.add_connector(cfg, app)
     _run_job(cfg, app, first)  # the first try fails (no server): a retry is saved
     assert db.pending_retry("github_advisories") is not None
     second = HermesScheduler()  # a restart: a new scheduler, the same database
@@ -246,3 +247,119 @@ def test_a_rejected_edit_shows_on_the_card_until_fixed(tmp_path: Any, db: Databa
     assert "ftp://x" in client.get("/connectors/edit_me/edit").get_data(as_text=True)  # draft restored
     client.post("/connectors/edit_me/edit", data={"yaml_text": good})
     assert "was not saved" not in client.get("/").get_data(as_text=True)
+
+
+def test_saving_does_not_double_blank_lines(tmp_path: Any, db: Database) -> None:
+    from secintegrate.connector_files import write_connector
+
+    write_connector(tmp_path, "edit_me", "connector: edit_me\r\nsource: x\r\n")
+    assert (tmp_path / "edit_me.yaml").read_bytes() == b"connector: edit_me\nsource: x\n"
+
+
+def test_editor_suggests_fixes_and_cards_use_short_labels(tmp_path: Any, db: Database) -> None:
+    from secintegrate.suggest import suggest_fixes
+    from secintegrate.web.app import create_app
+
+    text = ("connector: feodo_c2\nsource: ofeod\nschedule: '0 * * * *'\nbase_url: https://example.com\n"
+            "auth: {type: none}\nendpoints:\n  - name: e\n    path: /x\n    mapping:\n      target: event\n"
+            "      fields:\n        id: {from: id, required: true}\n")
+    titles = {s.title: s for s in suggest_fixes(text)}
+    assert titles["Source label looks mistyped"].new == "source: feodo"
+    assert titles["Add a health check"].new.startswith("probe:\n  path: /x")
+    assert suggest_fixes("connector: [") == []
+    cfg_dir = tmp_path / "cfg"
+    cfg_dir.mkdir()
+    (cfg_dir / "feodo_c2.yaml").write_text(text, encoding="utf-8")
+    client = create_app(cfg_dir, db).test_client()
+    page = client.get("/connectors/feodo_c2/edit").get_data(as_text=True)
+    assert "Suggested fixes" in page and "Apply to editor" in page
+    home = client.get("/").get_data(as_text=True)
+    assert "<dt>Failures</dt>" in home and "<dt>Quarantined</dt>" in home and "in a row" not in home
+
+
+def test_a_disabled_connector_shows_as_paused_with_no_stale_failure(tmp_path: Any, db: Database) -> None:
+    from secintegrate.web.app import create_app
+
+    cfg_dir = tmp_path / "cfg"
+    cfg_dir.mkdir()
+    text = (
+        "connector: off_one\nsource: nvd\nenabled: false\nschedule: '0 * * * *'\nbase_url: https://example.com\n"
+        "auth: {type: none}\nendpoints:\n  - name: e\n    path: /x\n    mapping:\n      target: event\n"
+        "      fields:\n        id: {from: id, required: true}\n        type: {const: a}\n"
+        "        severity: {const: low}\n        timestamp: {from: t, required: true, transform: iso8601}\n"
+        "        description: {const: d}\n")
+    (cfg_dir / "off_one.yaml").write_text(text, encoding="utf-8")
+    db.ensure_connection("off_one")
+    db.update_connection("off_one", status="failing", message="old failure text", consecutive_failures=4)
+    client = create_app(cfg_dir, db).test_client()
+    html = client.get("/").get_data(as_text=True)
+    assert "paused (disabled)" in html and "old failure text" not in html
+    (cfg_dir / "off_one.yaml").write_text(text.replace("enabled: false", "enabled: true"), encoding="utf-8")
+    assert "old failure text" in client.get("/").get_data(as_text=True)  # back to its real state when enabled
+
+
+def test_a_valid_edit_runs_the_connector_soon(tmp_path: Any, db: Database, vault: SecretVault,
+                                              notifier: RecordingNotifier) -> None:
+    from secintegrate.bootstrap import App
+    from secintegrate.scheduler import HermesScheduler
+    from secintegrate.web.app import create_app
+    from secintegrate.web.options import ConnectorHooks, WebOptions
+
+    cfg_dir = tmp_path / "cfg"
+    cfg_dir.mkdir()
+    text = (
+        "connector: run_me\nsource: nvd\nschedule: '0 * * * *'\nbase_url: https://example.com\n"
+        "auth: {type: none}\nendpoints:\n  - name: e\n    path: /x\n    mapping:\n      target: event\n"
+        "      fields:\n        id: {from: id, required: true}\n        type: {const: a}\n"
+        "        severity: {const: low}\n        timestamp: {from: t, required: true, transform: iso8601}\n"
+        "        description: {const: d}\n")
+    (cfg_dir / "run_me.yaml").write_text(text, encoding="utf-8")
+    sched = HermesScheduler()
+    sched.start(paused=True)
+    ws = App(config_dir=cfg_dir, db=db, vault=vault, notifier=notifier)  # type: ignore[call-arg]
+    hooks = ConnectorHooks(added=lambda e, c: sched.add_connector(c, ws),
+                           removed=lambda e, n: sched.remove_connector(n),
+                           run_now=lambda e, n: sched.run_soon(n))
+    client = create_app(cfg_dir, db, options=WebOptions(require_login=False, hooks=hooks)).test_client()
+    client.post("/connectors/run_me/edit", data={"yaml_text": text.replace("0 * * * *", "*/5 * * * *")})
+    assert [j for j in sched.get_jobs() if j.id.startswith("run_me__edit")]
+    client.post("/connectors/run_me/edit", data={"yaml_text": text.replace("schedule:", "enabled: false\nschedule:")})
+    assert sched.run_soon("run_me") is False  # disabled: nothing is run
+
+
+def test_a_run_uses_the_latest_settings_and_skips_a_removed_connector(db: Database, vault: SecretVault,
+                                                                      notifier: RecordingNotifier,
+                                                                      monkeypatch: Any) -> None:
+    from secintegrate import scheduler as sch
+    from secintegrate.bootstrap import App
+
+    seen: list[str] = []
+
+    def fake_run(cfg: Any, *a: Any, **k: Any) -> Any:
+        seen.append(cfg.base_url)
+        return type("R", (), {"retry_in_minutes": None})()
+
+    monkeypatch.setattr(sch, "run_connector", fake_run)
+    ws = App(config_dir=Path("."), db=db, vault=vault, notifier=notifier)  # type: ignore[call-arg]
+    sched = sch.HermesScheduler()
+    sched.start(paused=True)
+    old, new = make_cfg("https://old.example.test"), make_cfg("https://new.example.test")
+    sched.add_connector(old, ws)
+    sched.add_connector(new, ws)  # an edit replaced the settings
+    sch._run_job(old, ws, sched)  # a job that still holds the old copy
+    assert seen == ["https://new.example.test"]
+    sched.remove_connector("github_advisories")
+    sch._run_job(new, ws, sched)  # removed while waiting: not run
+    assert seen == ["https://new.example.test"]
+
+
+def test_a_run_re_tests_a_failing_probe_so_a_fix_clears_it(db: Database, vault: SecretVault,
+                                                           notifier: RecordingNotifier) -> None:
+    from secintegrate.runner import run_connector
+
+    cfg = make_cfg(BASE, probe={"path": "/ping", "interval_minutes": 60})
+    db.ensure_connection("github_advisories")
+    db.add_probe("github_advisories", False, "network", None, None)  # an old failure, not yet due again
+    run_connector(cfg, db, vault, notifier, sleep=lambda s: None, transport=api())
+    assert (db.latest_probe("github_advisories") or {}).get("ok") == 1
+    assert (db.get_connection("github_advisories") or {}).get("status") == "healthy"
