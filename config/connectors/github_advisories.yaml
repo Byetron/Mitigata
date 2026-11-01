@@ -1,6 +1,6 @@
 connector: github_advisories
 source: github
-enabled: true
+enabled: True
 schedule: "*/15 * * * *"
 base_url: https://api.github.com
 auth:

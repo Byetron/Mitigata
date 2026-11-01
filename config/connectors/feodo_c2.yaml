@@ -1,6 +1,6 @@
 connector: feodo_c2
-source: feodotracker
-enabled: true
+source: feodo
+enabled: True
 schedule: "30 */4 * * *"
 base_url: https://feodotracker.abuse.ch
 auth:
@@ -19,3 +19,6 @@ endpoints:
         os:        { from: malware, default: unknown }   # malware family, stored in the os column
         owner:     { from: as_name, default: null }
         last_seen: { from: last_online, transform: iso8601, default: null }
+probe:
+  path: /downloads/ipblocklist.json
+  interval_minutes: 15

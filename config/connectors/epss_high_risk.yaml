@@ -26,3 +26,6 @@ endpoints:
         severity:    { const: high }
         timestamp:   { from: date, transform: iso8601, required: true }
         description: { from: epss, transform: to_string, default: "" }   # the EPSS score itself
+probe:
+  path: /data/v1/epss
+  interval_minutes: 15
