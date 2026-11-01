@@ -1,25 +1,29 @@
 # Hermes
 
 Hermes is a config-driven security integration platform. Each source is one YAML file in `config/connectors/`;
-no code changes are needed to add a source. See `PLATFORM_SPEC.md` for the base design and
-`IMPROVEMENTS_BUILD_BRIEF.md` for the safeguards (encrypted secrets, monitoring, input validation).
+no code changes are needed to add a source. It fetches on a schedule, stores records in a local database, and shows
+each connector's health on a local dashboard. See `PLATFORM_SPEC.md` for the design and `CHANGES.md` for the history.
+
+Requires Python 3.11 or newer. Works on Windows, macOS and Linux.
 
 ## Connectors
+
+These ship in `config/connectors/`:
 
 | Connector | Source | Auth | Paging | Lands in |
 |---|---|---|---|---|
 | `github_advisories` | GitHub Security Advisories | bearer token | link header | events |
 | `nvd_cve` | NIST NVD CVE API 2.0 | API key header | offset | events |
-| `cisa_kev` | CISA Known Exploited Vulnerabilities | none | single request | events |
 | `epss_high_risk` | FIRST EPSS (score above 0.9) | none | offset | events |
-| `hibp_breaches` | Have I Been Pwned breach list | none | single request | events |
 | `feodo_c2` | abuse.ch Feodo botnet C2 IPs | none | single request | devices |
+
+More sources (for example CISA Known Exploited Vulnerabilities) are available as presets on the **Add connector** page.
 
 ## First run
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\activate
+.venv\Scripts\activate          # macOS / Linux: source .venv/bin/activate
 pip install -e ".[dev]"
 
 hermes init                      # creates the master key (OS keychain) and the database. Safe to repeat.
@@ -30,6 +34,8 @@ hermes validate                  # errors block running; warnings (for example "
 hermes auth set-password you@example.com   # who may sign in (see "Signing in" below)
 hermes serve                     # scheduler + dashboard on http://127.0.0.1:8000
 ```
+
+On Windows, `run.bat` wraps the server: `run start` (opens the browser), `run stop`, `run restart`, `run status`, `run test`.
 
 Coming from the old plaintext `.env`? Run `hermes secret import-env .env` once, then **delete `.env` and rotate
 those keys at the provider**. Hermes no longer reads `.env` at runtime. `.env.example` is only a list of names.
@@ -43,6 +49,9 @@ On a headless machine with no OS keychain, set `SECINTEGRATE_MASTER_KEY` to 64 h
 hermes run nvd_cve --once        # one run now; prints pages, requests, records
 hermes status                    # health table in the terminal
 hermes resume github_advisories  # un-pause a connector (also happens when you set its secret again)
+hermes diagnose nvd_cve          # check config, key, network and the live API; says what is wrong and how to fix it
+hermes repair nvd_cve            # diagnose, apply the safe automatic fixes, then check again
+hermes tools                     # list the inspect/repair tools and whether each changes state
 hermes secret delete NAME
 hermes db reset --yes            # wipes fetched data only; stored secrets are kept
 pytest ; ruff check src tests ; mypy
